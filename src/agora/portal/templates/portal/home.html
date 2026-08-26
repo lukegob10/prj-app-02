@@ -1,0 +1,46 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="description" content="Agora secure dashboard publishing portal">
+    <title>Agora</title>
+    <link rel="stylesheet" href="{% static 'portal/foundation.css' %}">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Agora home">Agora</a>
+      <span class="environment">{{ environment }}</span>
+    </header>
+    <main id="main-content" class="foundation" tabindex="-1">
+      <p class="eyebrow">Application foundation</p>
+      <h1>Secure dashboard publishing starts here.</h1>
+      <p class="lede">
+        The trusted portal is running. Account administration, dashboard uploads, sharing,
+        and publishing will be enabled by their dedicated MVP tickets.
+      </p>
+      <section class="boundary" aria-labelledby="boundary-heading">
+        <h2 id="boundary-heading">Content isolation is active by design</h2>
+        <p>
+          User-created HTML will run only on the isolated content origin, never inside this
+          portal document.
+        </p>
+        <dl>
+          <div>
+            <dt>Trusted portal</dt>
+            <dd>this origin</dd>
+          </div>
+          <div>
+            <dt>Isolated content</dt>
+            <dd><code>{{ content_origin }}</code></dd>
+          </div>
+        </dl>
+      </section>
+    </main>
+    <footer>
+      <p>Internal use only</p>
+    </footer>
+  </body>
+</html>

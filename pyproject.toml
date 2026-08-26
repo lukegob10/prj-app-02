@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agora"
+version = "0.1.0"
+description = "Secure internal publishing for self-contained HTML dashboards"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "Django>=5.2.17,<5.3",
+    "psycopg[binary]>=3.3.4,<3.4",
+    "python-dotenv>=1.2.3,<2",
+]
+
+[dependency-groups]
+dev = [
+    "django-stubs[compatible-mypy]>=6.1,<6.2",
+    "pytest>=9.1.1,<10",
+    "pytest-cov>=7.1,<8",
+    "pytest-django>=4.14,<5",
+    "ruff>=0.16.4,<0.17",
+]
+
+[tool.uv]
+required-version = "==0.12.6"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agora"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/scripts",
+    "/README.md",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+required-version = ">=0.16.4,<0.17"
+target-version = "py314"
+line-length = 100
+extend-exclude = ["tickets"]
+
+[tool.ruff.lint]
+select = ["B", "DJ", "E", "F", "I", "RUF", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/agora/settings/*.py" = ["F403", "F405"]
+"src/agora/**/migrations/*.py" = ["RUF012"]
+
+[tool.mypy]
+python_version = "3.14"
+plugins = ["mypy_django_plugin.main"]
+strict = true
+warn_unreachable = true
+exclude = ["^tickets/"]
+
+[tool.django-stubs]
+django_settings_module = "agora.settings.portal"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "agora.settings.portal"
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "--cov=agora",
+    "--cov-branch",
+    "--cov-report=term-missing",
+    "--cov-fail-under=95",
+    "-ra",
+]
+testpaths = ["tests"]
+markers = ["smoke: fast runnable-application smoke coverage"]

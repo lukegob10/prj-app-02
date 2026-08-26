@@ -1,0 +1,35 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Sign in | Agora{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow="Portal access" title="Sign in" heading_id="login-heading" intro="Use the SOEID and password provided by an Agora administrator." %}
+  <section class="portal-card portal-card--accent" aria-labelledby="login-heading">
+    <form class="portal-form-stack" method="post" novalidate>
+      {% csrf_token %}
+      {{ form.next }}
+      {% if login_error %}
+        <div class="portal-alert portal-alert--error" role="alert">
+          <span class="portal-alert__marker" aria-hidden="true">!</span>
+          <p>{{ login_error }}</p>
+        </div>
+      {% endif %}
+      {% if form.non_field_errors %}
+        <div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>
+      {% endif %}
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.soeid.id_for_label }}">{{ form.soeid.label }}</label>
+        {{ form.soeid }}
+        {% if form.soeid.errors %}<div class="portal-form-field__error" role="alert">{{ form.soeid.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+        {{ form.password }}
+        {% if form.password.errors %}<div class="portal-form-field__error" role="alert">{{ form.password.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-action-group">
+        <button class="portal-button portal-button--primary" type="submit">Sign in</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

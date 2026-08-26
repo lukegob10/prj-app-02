@@ -5,9 +5,11 @@ from __future__ import annotations
 import uuid
 from typing import Any, ClassVar
 
+from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.crypto import salted_hmac
 
 from agora.persistence.names import (
     InvalidLogicalName,
@@ -49,6 +51,7 @@ class User(AbstractBaseUser):
     soeid = models.CharField(max_length=64, unique=True)
     is_active = models.BooleanField(default=True)
     is_administrator = models.BooleanField(default=False)
+    auth_version = models.PositiveBigIntegerField(default=1, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -62,17 +65,36 @@ class User(AbstractBaseUser):
             models.CheckConstraint(
                 condition=models.Q(soeid__regex=r"^[A-Z0-9][A-Z0-9._-]{0,63}$"),
                 name="agora_user_canonical_soeid",
-            )
+            ),
+            models.CheckConstraint(
+                condition=models.Q(auth_version__gt=0),
+                name="agora_user_auth_version_positive",
+            ),
         ]
 
     def __str__(self) -> str:
         return self.soeid
 
+    def get_session_auth_hash(self) -> str:
+        """Bind every session to the current password and revocation version."""
+        return salted_hmac(
+            "agora.persistence.models.User.get_session_auth_hash",
+            f"{self.password}:{self.auth_version}",
+            secret=settings.SECRET_KEY,
+        ).hexdigest()
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self._state.adding:
-            original = type(self).objects.only("id", "soeid").get(pk=self.pk)
+            original = (
+                type(self).objects.only("id", "soeid", "is_active", "auth_version").get(pk=self.pk)
+            )
             if original.id != self.id or original.soeid != self.soeid:
                 raise ImmutableRecordError("user identity fields are immutable")
+            if self.is_active != original.is_active:
+                self.auth_version = original.auth_version + 1
+                update_fields = kwargs.get("update_fields")
+                if update_fields is not None:
+                    kwargs["update_fields"] = tuple(dict.fromkeys((*update_fields, "auth_version")))
         self.full_clean()
         super().save(*args, **kwargs)
 
@@ -87,6 +109,35 @@ class User(AbstractBaseUser):
             raise ValidationError({"soeid": str(error)}) from error
         if self.soeid != canonical:
             raise ValidationError({"soeid": "SOEID must already be canonical"})
+
+
+class LoginThrottle(models.Model):
+    """Hashed, short-lived failure counters for bounded login abuse control."""
+
+    id = models.BigAutoField(primary_key=True)
+    bucket_hash = models.CharField(max_length=64, unique=True, editable=False)
+    window_started_at = models.DateTimeField()
+    failed_attempts = models.PositiveIntegerField(default=0)
+    blocked_until = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=models.Q(bucket_hash__regex=r"^[0-9a-f]{64}$"),
+                name="agora_login_throttle_hash_format",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(failed_attempts__gte=0),
+                name="agora_login_throttle_attempts_nonnegative",
+            ),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=("updated_at",), name="agora_auth_throttle_upd_idx")
+        ]
+
+    def __str__(self) -> str:
+        return f"login-throttle:{self.id}"
 
 
 class Dashboard(models.Model):

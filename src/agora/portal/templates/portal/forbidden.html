@@ -1,0 +1,8 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Access not available | Agora{% endblock %}
+
+{% block content %}
+  {% url "home" as home_url %}
+  {% include "portal/components/error-state.html" with title="Access not available" message="You do not have permission to view this page. Return to the portal home or sign in with an authorized account." action_url=home_url action_label="Return home" %}
+{% endblock %}

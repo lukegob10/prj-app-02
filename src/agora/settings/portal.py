@@ -12,14 +12,21 @@ WSGI_APPLICATION = "agora.wsgi.application"
 ASGI_APPLICATION = "agora.asgi.application"
 
 INSTALLED_APPS = [
+    "django.contrib.contenttypes",
+    "django.contrib.auth",
+    "django.contrib.sessions",
+    "django.contrib.messages",
     "django.contrib.staticfiles",
     "agora.persistence",
     "agora.portal",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "agora.middleware.PortalSecurityHeadersMiddleware",
 ]
@@ -31,6 +38,8 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
+                "django.contrib.messages.context_processors.messages",
+                "agora.portal.context_processors.portal_shell",
             ],
         },
     }
@@ -39,11 +48,35 @@ TEMPLATES = [
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / ".local" / "static"
 
+CSRF_COOKIE_NAME = "__Host-agora_csrf"
 CSRF_COOKIE_DOMAIN = None
 CSRF_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SECURE = RUNTIME.is_production
+CSRF_COOKIE_PATH = "/"
+CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SECURE = True
 CSRF_TRUSTED_ORIGINS = [RUNTIME.portal_origin.value]
+SESSION_COOKIE_AGE = 8 * 60 * 60
+SESSION_COOKIE_NAME = "__Host-agora_session"
 SESSION_COOKIE_DOMAIN = None
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SECURE = RUNTIME.is_production
+SESSION_COOKIE_PATH = "/"
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SECURE = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "home"
+LOGOUT_REDIRECT_URL = "login"
+AUTHENTICATION_BACKENDS = ["django.contrib.auth.backends.ModelBackend"]
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        "OPTIONS": {"user_attributes": ["soeid"]},
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 12},
+    },
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
 X_FRAME_OPTIONS = "DENY"

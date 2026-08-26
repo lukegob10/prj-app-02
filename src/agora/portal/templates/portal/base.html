@@ -17,6 +17,21 @@
 
     <main id="main-content" class="portal-main" tabindex="-1">
       <div class="portal-container">
+        {% if messages %}
+          <section class="portal-section" aria-label="Notifications">
+            {% for message in messages %}
+              {% if "error" in message.tags %}
+                {% include "portal/components/alert.html" with tone="error" message=message %}
+              {% elif "warning" in message.tags %}
+                {% include "portal/components/alert.html" with tone="warning" message=message %}
+              {% elif "success" in message.tags %}
+                {% include "portal/components/alert.html" with tone="success" message=message %}
+              {% else %}
+                {% include "portal/components/alert.html" with tone="info" message=message %}
+              {% endif %}
+            {% endfor %}
+          </section>
+        {% endif %}
         {% block content %}{% endblock %}
       </div>
     </main>

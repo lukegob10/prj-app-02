@@ -1,0 +1,42 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Create user | Agora{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow="Administration" title="Create user" intro="Provision a local SOEID account. The password is stored as a one-way hash and is never displayed again." %}
+
+  <section class="portal-section" aria-label="Create user form">
+    <form class="portal-card portal-form-stack" method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.soeid.id_for_label }}">{{ form.soeid.label }}</label>
+        <p class="portal-form-field__help" id="soeid-help">{{ form.soeid.help_text }}</p>
+        {{ form.soeid }}
+        {% if form.soeid.errors %}<div class="portal-form-field__error" role="alert">{{ form.soeid.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+        <p class="portal-form-field__help" id="password-help">{{ form.password.help_text }}</p>
+        {{ form.password }}
+        {% if form.password.errors %}<div class="portal-form-field__error" role="alert">{{ form.password.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.password_confirmation.id_for_label }}">{{ form.password_confirmation.label }}</label>
+        {{ form.password_confirmation }}
+        {% if form.password_confirmation.errors %}<div class="portal-form-field__error" role="alert">{{ form.password_confirmation.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-check-field">
+        {{ form.is_administrator }}
+        <span>
+          <label class="portal-form-field__label" for="{{ form.is_administrator.id_for_label }}">{{ form.is_administrator.label }}</label>
+          <span class="portal-form-field__help">{{ form.is_administrator.help_text }}</span>
+        </span>
+      </div>
+      <div class="portal-action-group">
+        <a class="portal-button portal-button--quiet" href="{% url 'admin-user-list' %}">Cancel</a>
+        <button class="portal-button portal-button--primary" type="submit">Create user</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

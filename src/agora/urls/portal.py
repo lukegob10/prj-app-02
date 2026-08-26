@@ -2,6 +2,28 @@
 
 from django.urls import path
 
-from agora.portal.views import home
+from agora.portal.views import (
+    home,
+    login_view,
+    logout_view,
+    user_create,
+    user_disable,
+    user_enable,
+    user_list,
+    user_reset_password,
+)
 
-urlpatterns = [path("", home, name="home")]
+urlpatterns = [
+    path("", home, name="home"),
+    path("login/", login_view, name="login"),
+    path("logout/", logout_view, name="logout"),
+    path("admin/users/", user_list, name="admin-user-list"),
+    path("admin/users/create/", user_create, name="admin-user-create"),
+    path("admin/users/<uuid:user_id>/disable/", user_disable, name="admin-user-disable"),
+    path("admin/users/<uuid:user_id>/enable/", user_enable, name="admin-user-enable"),
+    path(
+        "admin/users/<uuid:user_id>/reset-password/",
+        user_reset_password,
+        name="admin-user-reset-password",
+    ),
+]

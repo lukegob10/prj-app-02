@@ -1,6 +1,13 @@
 <div class="portal-account">
-  <span class="portal-account__name">{{ account.name }}</span>
+  {% if account.name %}
+    <span class="portal-account__name">{{ account.name }}</span>
+  {% endif %}
   {% if account.logout_url %}
-    <a class="portal-account__link" href="{{ account.logout_url }}">Sign out</a>
+    <form class="portal-account__form" method="post" action="{{ account.logout_url }}">
+      {% csrf_token %}
+      <button class="portal-account__link portal-account__button" type="submit">Sign out</button>
+    </form>
+  {% elif account.login_url %}
+    <a class="portal-account__link" href="{{ account.login_url }}">Sign in</a>
   {% endif %}
 </div>

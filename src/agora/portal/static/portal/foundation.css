@@ -333,6 +333,23 @@ a:hover {
   white-space: nowrap;
 }
 
+.portal-account__form {
+  margin: 0;
+}
+
+.portal-account__button {
+  padding: 0;
+  color: var(--portal-color-accent-strong);
+  background: transparent;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.portal-account__button:hover {
+  color: var(--portal-color-accent);
+}
+
 .portal-main {
   min-height: calc(100vh - 8.5rem);
   padding-block: clamp(var(--portal-space-8), 7vw, var(--portal-space-10));

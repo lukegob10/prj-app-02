@@ -2,7 +2,8 @@
 
 Agora is an internal application for securely uploading, publishing, and sharing
 self-contained HTML dashboards with optional CSV attachments. This repository currently
-implements the AG-001 foundation and AG-002 metadata/private-storage boundary; later MVP
+implements the AG-001 foundation, AG-002 metadata/private-storage boundary, and AG-003 local
+SOEID authentication/user administration; later MVP
 behavior remains in the preserved [`tickets`](./tickets/README.md) backlog.
 
 ## Foundation decisions
@@ -54,13 +55,15 @@ uv run --locked python -m playwright install chromium
 uv run python scripts/bootstrap_env.py
 docker compose up -d postgres
 uv run python manage.py migrate
+uv run python manage.py bootstrap_admin --soeid ASSIGNED_SOEID
 uv run python manage.py runserver 127.0.0.1:8000
 ```
 
 Open `http://portal.agora.test:8000`. Local HTTP is loopback-only and development-only; do
-not use real credentials or data. Production configuration rejects HTTP origins. TLS-backed
-local browser testing becomes mandatory before authentication and uploaded content are
-enabled in AG-003/AG-007.
+not use real credentials or data. The bootstrap command prompts for the password without
+echoing it; see [local authentication and user administration](./docs/authentication.md).
+Browser authentication requires TLS-backed local testing, and production configuration rejects
+HTTP origins.
 
 To prove that the isolated content process starts fail-closed, use a second terminal:
 
@@ -119,7 +122,8 @@ The private filesystem contract, durability assumptions, and backup boundary are
 
 AG-001 locks contracts, tooling, boundaries, and a runnable skeleton. AG-002 adds canonical User,
 Dashboard, immutable complete Revision/Artifact, Viewer Grant, append-only Audit Event, and
-storage-reservation persistence plus a private filesystem adapter. It does **not** add login,
-account administration workflows, dashboard/upload/share/publish UI, artifact HTTP delivery,
-rendering, object storage, ECS topology, or production hosting. Those remain separate backlog
+storage-reservation persistence plus a private filesystem adapter. AG-003 adds local SOEID login,
+secure sessions, CSRF, throttling, first-admin bootstrap, and administrator user workflows. It
+does **not** add dashboard/upload/share/publish UI, artifact HTTP delivery, rendering, object
+storage, ECS topology, reverse-proxy SSO, or production hosting. Those remain separate backlog
 tickets so security-sensitive behavior is not smuggled across ticket boundaries.

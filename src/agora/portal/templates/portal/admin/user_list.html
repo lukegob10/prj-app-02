@@ -1,0 +1,62 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Users | Agora{% endblock %}
+
+{% block content %}
+  {% url "admin-user-create" as create_user_url %}
+  {% include "portal/components/page-header.html" with eyebrow="Administration" title="Users" intro="Provisioned SOEIDs and account status. Passwords are never shown." action_url=create_user_url action_label="Create user" %}
+
+  <section class="portal-section" aria-labelledby="user-table-heading">
+    <div class="portal-section__heading">
+      <h2 id="user-table-heading">Provisioned accounts</h2>
+    </div>
+    <div class="portal-table-wrap">
+      <table class="portal-table">
+        <caption>Provisioned Agora users and available account actions</caption>
+        <thead>
+          <tr>
+            <th scope="col">SOEID</th>
+            <th scope="col">Role</th>
+            <th scope="col">Status</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+            <tr>
+              <th scope="row">{{ user.soeid }}</th>
+              <td>{% if user.is_administrator %}Administrator{% else %}User{% endif %}</td>
+              <td>
+                {% if user.is_active %}
+                  {% include "portal/components/status-badge.html" with label="Active" tone="positive" %}
+                  {% if not user.has_usable_password %}<span>Password reset required</span>{% endif %}
+                {% else %}
+                  {% include "portal/components/status-badge.html" with label="Disabled" tone="warning" %}
+                {% endif %}
+              </td>
+              <td>
+                <div class="portal-action-group">
+                  <a class="portal-button portal-button--quiet" href="{% url 'admin-user-reset-password' user.id %}">Reset password</a>
+                  {% if user.is_active %}
+                    {% if user.id == request.user.id %}
+                      <span class="portal-form-field__help">Current account</span>
+                    {% else %}
+                      <a class="portal-button portal-button--quiet" href="{% url 'admin-user-disable' user.id %}">Disable</a>
+                    {% endif %}
+                  {% else %}
+                    <form method="post" action="{% url 'admin-user-enable' user.id %}">
+                      {% csrf_token %}
+                      <button class="portal-button portal-button--quiet" type="submit">Re-enable</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4">No users have been provisioned.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

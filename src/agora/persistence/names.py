@@ -49,18 +49,20 @@ def normalize_logical_name(value: str) -> LogicalName:
     display = unicodedata.normalize("NFC", value)
     if not display or len(display) > _MAX_LOGICAL_NAME_CODEPOINTS:
         raise InvalidLogicalName("logical name must contain 1 through 255 characters")
+    compatible = unicodedata.normalize("NFKC", display)
     if display in {".", ".."} or display.endswith((" ", ".")):
         raise InvalidLogicalName("logical name has a reserved form")
-    if any(character in {"/", "\\", ":"} for character in display):
+    if compatible in {".", ".."} or compatible.endswith((" ", ".")):
+        raise InvalidLogicalName("logical name has a reserved form")
+    if any(character in {"/", "\\", ":"} for character in compatible):
         raise InvalidLogicalName("logical name cannot contain path separators or a colon")
     if any(unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in display):
         raise InvalidLogicalName("logical name cannot contain control characters")
 
-    stem = display.split(".", maxsplit=1)[0].upper()
+    stem = compatible.split(".", maxsplit=1)[0].upper().rstrip(" .")
     if stem in _RESERVED_WINDOWS_STEMS:
         raise InvalidLogicalName("logical name uses a reserved platform name")
 
-    compatible = unicodedata.normalize("NFKC", display)
     comparison_key = unicodedata.normalize("NFKC", compatible.casefold())
     if len(comparison_key.encode("utf-8")) > _MAX_NAME_KEY_BYTES:
         raise InvalidLogicalName("logical name comparison key is too long")

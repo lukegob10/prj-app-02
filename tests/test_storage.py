@@ -14,6 +14,7 @@ from agora.persistence.storage import (
     ArtifactStorageError,
     FilesystemArtifactStorage,
     InvalidStorageKey,
+    StorageCleanupRequired,
     StorageCollision,
     StorageIntegrityError,
     StorageKey,
@@ -333,6 +334,28 @@ def test_post_install_failure_returns_a_committed_receipt(
     monkeypatch.undo()
     storage.delete(key)
     assert not pending.exists()
+
+
+def test_failed_write_retains_pending_bytes_when_cleanup_is_uncertain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "private"
+    storage = FilesystemArtifactStorage(root)
+    key = fixed_key()
+    pending = pending_path(root, key)
+    original_unlink = Path.unlink
+
+    def fail_pending_unlink(path: Path, missing_ok: bool = False) -> None:
+        if path == pending:
+            raise OSError("simulated cleanup failure")
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", fail_pending_unlink)
+    with pytest.raises(StorageCleanupRequired, match="clean incomplete"):
+        storage.write(key, (b"content",), expected_sha256="0" * 64)
+
+    assert pending.read_bytes() == b"content"
+    assert not final_path(root, key).exists()
 
 
 def test_open_missing_artifact_is_generic(tmp_path: Path) -> None:

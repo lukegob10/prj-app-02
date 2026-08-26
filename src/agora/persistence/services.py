@@ -24,6 +24,7 @@ from agora.persistence.names import LogicalName, normalize_logical_name
 from agora.persistence.storage import (
     ArtifactStorage,
     ArtifactStorageError,
+    StorageCleanupRequired,
     StorageCollision,
     StorageKey,
     StorageWriteCommitted,
@@ -69,6 +70,7 @@ class _CleanupCandidate:
     reservation_id: uuid.UUID
     key: StorageKey
     owns_bytes: bool = False
+    uncertain_outcome: bool = False
 
 
 def create_complete_revision(
@@ -116,6 +118,13 @@ def create_complete_revision(
                 cleanup.owns_bytes = True
                 try:
                     _mark_reservation_verified(reservation.id, error.receipt)
+                except BaseException:
+                    pass
+                raise
+            except StorageCleanupRequired:
+                cleanup.uncertain_outcome = True
+                try:
+                    _mark_reservation_cleanup_required(reservation.id)
                 except BaseException:
                     pass
                 raise
@@ -257,6 +266,13 @@ def _mark_reservation_collision(reservation_id: uuid.UUID) -> None:
         reservation.save(update_fields=("storage_state",))
 
 
+def _mark_reservation_cleanup_required(reservation_id: uuid.UUID) -> None:
+    with transaction.atomic(durable=True):
+        reservation = StorageReservation.objects.select_for_update().get(id=reservation_id)
+        reservation.cleanup_required = True
+        reservation.save(update_fields=("cleanup_required",))
+
+
 def _commit_revision_metadata(
     *,
     dashboard_id: uuid.UUID,
@@ -360,6 +376,13 @@ def _cleanup_unowned(storage: ArtifactStorage, reservations: Sequence[_CleanupCa
                     continue
                 if reservation.storage_state == StorageReservation.StorageState.COLLISION:
                     reservation.delete()
+                    continue
+                if candidate.uncertain_outcome:
+                    if not reservation.cleanup_required:
+                        reservation.cleanup_required = True
+                        reservation.save(update_fields=("cleanup_required",))
+                    continue
+                if reservation.cleanup_required:
                     continue
                 if not candidate.owns_bytes:
                     reservation.delete()

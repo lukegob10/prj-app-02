@@ -35,6 +35,10 @@ class StorageIntegrityError(ArtifactStorageError):
     """Raised when streamed bytes fail size or digest verification."""
 
 
+class StorageCleanupRequired(ArtifactStorageError):
+    """Raised when a failed write may have left bytes that could not be removed."""
+
+
 class UnsafeStorageEntry(ArtifactStorageError):
     """Raised for a symlink, reparse point, or unexpected entry type."""
 
@@ -363,7 +367,7 @@ class FilesystemArtifactStorage:
         except FileNotFoundError:
             return
         except OSError as error:
-            raise ArtifactStorageError("could not clean incomplete artifact") from error
+            raise StorageCleanupRequired("could not clean incomplete artifact") from error
 
     @staticmethod
     def _fsync_directory(directory: Path) -> None:

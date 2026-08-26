@@ -53,15 +53,23 @@ def test_portal_rejects_the_content_hostname(client: Client) -> None:
     ],
 )
 def test_content_service_starts_fail_closed(client: Client) -> None:
-    response = client.get("/", HTTP_HOST="content.agorausercontent.test")
+    for path in ("/", "/arbitrary/path", "/artifact/1/dashboard.html", "/csv/report.csv"):
+        response = client.get(path, HTTP_HOST="content.agorausercontent.test")
 
-    assert response.status_code == 404
-    assert response.headers["Cache-Control"] == "no-store"
-    assert "default-src 'none'" in response.headers["Content-Security-Policy"]
-    assert "sandbox" in response.headers["Content-Security-Policy"]
+        assert response.status_code == 404
+        assert response.headers["Cache-Control"] == "private, no-store"
+        assert "default-src 'none'" in response.headers["Content-Security-Policy"]
+        assert "sandbox allow-scripts" in response.headers["Content-Security-Policy"]
+        assert (
+            "frame-ancestors http://portal.agora.test:8000"
+            in response.headers["Content-Security-Policy"]
+        )
+
     assert (
-        "frame-ancestors http://portal.agora.test:8000"
-        in response.headers["Content-Security-Policy"]
+        client.post(
+            "/artifact/1/dashboard.html", HTTP_HOST="content.agorausercontent.test"
+        ).status_code
+        == 404
     )
 
 

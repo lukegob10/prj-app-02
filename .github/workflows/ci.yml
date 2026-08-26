@@ -14,8 +14,8 @@ concurrency:
 
 jobs:
   install-lint-static-test-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       AGORA_ENVIRONMENT: test
       AGORA_DEBUG: "false"
@@ -23,7 +23,7 @@ jobs:
       AGORA_CONTENT_SECRET_KEY: content-test-only-not-a-secret-00000000000000000000000000000000000000000000000
       AGORA_PORTAL_ORIGIN: http://portal.agora.test:8000
       AGORA_CONTENT_ORIGIN: http://content.agorausercontent.test:8001
-      AGORA_DB_NAME: agora
+      AGORA_DB_NAME: agora_renderer
       AGORA_DB_USER: agora
       AGORA_DB_PASSWORD: test-only-not-a-secret
       AGORA_DB_HOST: 127.0.0.1
@@ -33,13 +33,13 @@ jobs:
       postgres:
         image: postgres:18.6-bookworm@sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af
         env:
-          POSTGRES_DB: agora
+          POSTGRES_DB: agora_renderer
           POSTGRES_USER: agora
           POSTGRES_PASSWORD: test-only-not-a-secret
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U agora -d agora"
+          --health-cmd "pg_isready -U agora -d agora_renderer"
           --health-interval 2s
           --health-timeout 3s
           --health-retries 15
@@ -60,6 +60,9 @@ jobs:
 
       - name: Install locked dependencies
         run: uv sync --locked --all-groups
+
+      - name: Install pinned Chromium
+        run: uv run --locked python -m playwright install --with-deps chromium
 
       - name: Run format, lint, static, database, test, and build gates
         run: uv run --locked python scripts/check.py

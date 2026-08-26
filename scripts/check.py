@@ -41,7 +41,7 @@ CHECKS = (
         (sys.executable, "manage.py", "makemigrations", "--check", "--dry-run"),
     ),
     Check("migration apply", (sys.executable, "manage.py", "migrate", "--noinput")),
-    Check("tests", ("pytest",)),
+    Check("tests", ("pytest", "--browser", "chromium")),
     Check("package build", ("uv", "build")),
 )
 

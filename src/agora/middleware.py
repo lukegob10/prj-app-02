@@ -5,18 +5,9 @@ from collections.abc import Callable
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 
-ResponseHandler = Callable[[HttpRequest], HttpResponse]
+from agora.rendering.security import apply_content_response_policy, apply_portal_response_policy
 
-_COMMON_RESTRICTIVE_HEADERS: dict[str, str] = {
-    "Cache-Control": "no-store",
-    "Permissions-Policy": (
-        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), "
-        "payment=(), usb=()"
-    ),
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-    "X-DNS-Prefetch-Control": "off",
-}
+ResponseHandler = Callable[[HttpRequest], HttpResponse]
 
 
 class PortalSecurityHeadersMiddleware:
@@ -27,26 +18,7 @@ class PortalSecurityHeadersMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         response = self.get_response(request)
-        for name, value in _COMMON_RESTRICTIVE_HEADERS.items():
-            response.headers.setdefault(name, value)
-        response.headers.setdefault(
-            "Content-Security-Policy",
-            "; ".join(
-                (
-                    "default-src 'self'",
-                    "base-uri 'none'",
-                    "object-src 'none'",
-                    "script-src 'none'",
-                    "style-src 'self'",
-                    "img-src 'self'",
-                    "connect-src 'self'",
-                    f"frame-src {settings.AGORA_CONTENT_ORIGIN}",
-                    "form-action 'self'",
-                    "frame-ancestors 'none'",
-                )
-            ),
-        )
-        return response
+        return apply_portal_response_policy(response, content_origin=settings.AGORA_CONTENT_ORIGIN)
 
 
 class ContentSecurityHeadersMiddleware:
@@ -57,19 +29,4 @@ class ContentSecurityHeadersMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         response = self.get_response(request)
-        for name, value in _COMMON_RESTRICTIVE_HEADERS.items():
-            response.headers.setdefault(name, value)
-        response.headers.setdefault(
-            "Content-Security-Policy",
-            "; ".join(
-                (
-                    "default-src 'none'",
-                    "base-uri 'none'",
-                    "object-src 'none'",
-                    "form-action 'none'",
-                    f"frame-ancestors {settings.AGORA_PORTAL_ORIGIN}",
-                    "sandbox",
-                )
-            ),
-        )
-        return response
+        return apply_content_response_policy(response, portal_origin=settings.AGORA_PORTAL_ORIGIN)

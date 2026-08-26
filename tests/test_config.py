@@ -19,7 +19,7 @@ def valid_environment(tmp_path: Path) -> dict[str, str]:
         "AGORA_CONTENT_SECRET_KEY": "c" * 64,
         "AGORA_PORTAL_ORIGIN": "http://portal.agora.test:8000",
         "AGORA_CONTENT_ORIGIN": "http://content.agorausercontent.test:8001",
-        "AGORA_DB_NAME": "agora",
+        "AGORA_DB_NAME": "agora_renderer",
         "AGORA_DB_USER": "agora",
         "AGORA_DB_PASSWORD": "not-a-real-password",
         "AGORA_DB_HOST": "127.0.0.1",

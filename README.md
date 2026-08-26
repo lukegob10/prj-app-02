@@ -50,6 +50,7 @@ or SameSite boundary.
 
 ```powershell
 uv sync --locked --all-groups
+uv run --locked python -m playwright install chromium
 uv run python scripts/bootstrap_env.py
 docker compose up -d postgres
 uv run python manage.py migrate
@@ -88,6 +89,18 @@ uv run mypy src tests scripts
 uv run pytest
 uv build
 ```
+
+The canonical test command includes the deterministic Chromium browser-security suite. The
+browser binary is pinned by the Playwright version in `uv.lock`; install it once after syncing:
+
+```powershell
+uv run --locked python -m playwright install chromium
+uv run --locked pytest tests/browser --browser chromium --no-cov
+```
+
+The browser suite uses three loopback-resolved fixture origins and never serves production
+artifact routes or render credentials. Its proven guarantees and residual network/CPU risks are
+documented in [`docs/browser-security.md`](./docs/browser-security.md).
 
 The test suite deliberately connects to PostgreSQL; SQLite is not a supported substitute.
 Configuration keys and safe local setup are documented in

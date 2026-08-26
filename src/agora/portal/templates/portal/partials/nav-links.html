@@ -1,0 +1,5 @@
+{% for item in nav_items %}
+  <li>
+    <a class="portal-nav__link" href="{{ item.url }}"{% if item.current %} aria-current="page"{% endif %}>{{ item.label }}</a>
+  </li>
+{% endfor %}

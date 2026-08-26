@@ -1,0 +1,12 @@
+<header class="portal-page-header">
+  <div class="portal-page-header__copy">
+    {% if eyebrow %}<p class="portal-eyebrow">{{ eyebrow }}</p>{% endif %}
+    <h1{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title }}</h1>
+    {% if intro %}<p class="portal-page-header__intro">{{ intro }}</p>{% endif %}
+  </div>
+  {% if action_url and action_label %}
+    <div class="portal-page-header__actions">
+      {% include "portal/components/button.html" with button_href=action_url button_label=action_label button_variant=action_variant|default:'primary' %}
+    </div>
+  {% endif %}
+</header>

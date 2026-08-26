@@ -1,0 +1,6 @@
+<div class="portal-account">
+  <span class="portal-account__name">{{ account.name }}</span>
+  {% if account.logout_url %}
+    <a class="portal-account__link" href="{{ account.logout_url }}">Sign out</a>
+  {% endif %}
+</div>

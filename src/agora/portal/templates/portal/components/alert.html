@@ -1,0 +1,7 @@
+<div class="portal-alert{% if tone == 'success' %} portal-alert--success{% elif tone == 'warning' %} portal-alert--warning{% elif tone == 'error' %} portal-alert--error{% else %} portal-alert--info{% endif %}"{% if tone == 'error' or tone == 'warning' %} role="alert"{% else %} role="status" aria-live="polite"{% endif %}>
+  <span class="portal-alert__marker" aria-hidden="true">!</span>
+  <div>
+    {% if heading %}<h2>{{ heading }}</h2>{% endif %}
+    <p>{{ message }}</p>
+  </div>
+</div>

@@ -1,0 +1,5 @@
+{% if button_href %}
+  <a class="portal-button{% if button_variant == 'secondary' %} portal-button--secondary{% elif button_variant == 'quiet' %} portal-button--quiet{% elif button_variant == 'danger' %} portal-button--danger{% else %} portal-button--primary{% endif %}" href="{{ button_href }}">{{ button_label }}</a>
+{% else %}
+  <button class="portal-button{% if button_variant == 'secondary' %} portal-button--secondary{% elif button_variant == 'quiet' %} portal-button--quiet{% elif button_variant == 'danger' %} portal-button--danger{% else %} portal-button--primary{% endif %}" type="{{ button_type|default:'button' }}"{% if disabled %} disabled{% endif %}>{{ button_label }}</button>
+{% endif %}

@@ -1,0 +1,6 @@
+<div class="portal-action-group">
+  {% if cancel_url and cancel_label %}
+    {% include "portal/components/button.html" with button_href=cancel_url button_label=cancel_label button_variant='quiet' %}
+  {% endif %}
+  {% include "portal/components/button.html" with button_label=submit_label|default:'Save' button_type='submit' button_variant=submit_variant|default:'primary' disabled=submit_disabled %}
+</div>

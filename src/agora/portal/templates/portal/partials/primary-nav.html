@@ -1,0 +1,17 @@
+<nav class="portal-nav" aria-label="Primary navigation">
+  <ul class="portal-nav__list portal-nav__list--desktop">
+    {% include "portal/partials/nav-links.html" with nav_items=nav_items %}
+  </ul>
+
+  <details class="portal-nav__mobile">
+    <summary class="portal-nav__toggle" aria-controls="primary-navigation-menu">
+      <span>Menu</span>
+      <span class="portal-nav__toggle-icon" aria-hidden="true"></span>
+    </summary>
+    <div class="portal-nav__menu">
+      <ul id="primary-navigation-menu" class="portal-nav__list portal-nav__list--mobile">
+        {% include "portal/partials/nav-links.html" with nav_items=nav_items %}
+      </ul>
+    </div>
+  </details>
+</nav>

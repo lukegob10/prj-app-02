@@ -1,0 +1,22 @@
+<article class="portal-card{% if tone == 'accent' %} portal-card--accent{% elif tone == 'muted' %} portal-card--muted{% endif %}">
+  <div class="portal-card__header">
+    <div>
+      {% if eyebrow %}<p class="portal-card__eyebrow">{{ eyebrow }}</p>{% endif %}
+      {% if heading_level == 3 %}<h3{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title }}</h3>
+      {% elif heading_level == 4 %}<h4{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title }}</h4>
+      {% elif heading_level == 5 %}<h5{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title }}</h5>
+      {% elif heading_level == 6 %}<h6{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title }}</h6>
+      {% else %}<h2{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title }}</h2>
+      {% endif %}
+    </div>
+    {% if badge_label %}
+      {% include "portal/components/status-badge.html" with label=badge_label tone=badge_tone %}
+    {% endif %}
+  </div>
+  {% if text %}<p>{{ text }}</p>{% endif %}
+  {% if items %}
+    <ul class="portal-list">
+      {% for item in items %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+</article>

@@ -24,6 +24,9 @@ Read the normative [product contract](./docs/product-contract.md),
 [architecture](./docs/architecture.md), and [threat model](./docs/threat-model.md) before
 adding features.
 
+Portal page structure and reusable component conventions are recorded in
+[docs/ui-conventions.md](./docs/ui-conventions.md).
+
 ## Prerequisites
 
 - [uv 0.12.6](https://docs.astral.sh/uv/getting-started/installation/) (uv installs the pinned

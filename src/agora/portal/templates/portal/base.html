@@ -1,0 +1,26 @@
+{% load static %}
+<!doctype html>
+<html lang="{{ language_code|default:'en' }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="description" content="{{ meta_description|default:'Agora secure dashboard publishing portal' }}">
+    <title>{% block title %}Agora{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'portal/foundation.css' %}">
+    {% block head_extra %}{% endblock %}
+  </head>
+  <body class="portal-page{% block body_class %}{% endblock %}">
+    <a class="portal-skip-link" href="#main-content">Skip to main content</a>
+
+    {% include "portal/partials/site-header.html" %}
+
+    <main id="main-content" class="portal-main" tabindex="-1">
+      <div class="portal-container">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+
+    {% include "portal/partials/site-footer.html" %}
+  </body>
+</html>

@@ -1,0 +1,19 @@
+<header class="portal-header">
+  <div class="portal-container portal-header__inner">
+    <div class="portal-brand-group">
+      <a class="portal-brand" href="/" aria-label="Agora home">
+        <span class="portal-brand__mark" aria-hidden="true">A</span>
+        <span>Agora</span>
+      </a>
+      {% if environment %}
+        <span class="portal-environment">{{ environment }}</span>
+      {% endif %}
+    </div>
+
+    {% include "portal/partials/primary-nav.html" %}
+
+    {% if account %}
+      {% include "portal/partials/account-menu.html" %}
+    {% endif %}
+  </div>
+</header>

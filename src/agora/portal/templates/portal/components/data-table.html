@@ -1,0 +1,17 @@
+<div class="portal-table-wrap">
+  <table class="portal-table">
+    <caption>{{ caption|default:'Data table' }}</caption>
+    <thead>
+      <tr>
+        {% for header in headers %}<th scope="col">{{ header }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

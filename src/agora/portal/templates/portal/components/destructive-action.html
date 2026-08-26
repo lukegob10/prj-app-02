@@ -1,0 +1,17 @@
+<section class="portal-danger-zone"{% if heading_id %} aria-labelledby="{{ heading_id }}"{% endif %}>
+  <p class="portal-eyebrow portal-eyebrow--danger">Destructive action</p>
+  <h2{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title }}</h2>
+  <p>{{ message }}</p>
+  {% if action_url %}
+    <form class="portal-form-stack" method="post" action="{{ action_url }}">
+      {% csrf_token %}
+      <label class="portal-check-field">
+        <input name="confirmation" type="checkbox" required>
+        <span>{{ confirmation_label|default:'I understand this action cannot be undone.' }}</span>
+      </label>
+      <div class="portal-action-group">
+        {% include "portal/components/button.html" with button_label=action_label|default:'Continue' button_type='submit' button_variant='danger' %}
+      </div>
+    </form>
+  {% endif %}
+</section>

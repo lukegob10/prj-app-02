@@ -10,7 +10,7 @@ import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import DatabaseError, IntegrityError, close_old_connections, connection, transaction
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -37,6 +37,8 @@ from agora.portal.security import safe_next_url
 pytestmark = pytest.mark.django_db(transaction=True)
 
 PORTAL_HOST = "portal.agora.test:8000"
+LOCAL_HTTPS_HOST = "localhost:8443"
+LOCAL_HTTPS_ORIGIN = f"https://{LOCAL_HTTPS_HOST}"
 
 
 def strong_password() -> str:
@@ -514,6 +516,90 @@ def test_csrf_protects_login_logout_and_admin_mutations(
     assert User.objects.get(id=admin.id).is_active is True
 
 
+@override_settings(
+    AGORA_ALLOW_OPAQUE_LOOPBACK_ORIGIN=True,
+    AGORA_ENVIRONMENT="development",
+    AGORA_PORTAL_ORIGIN=LOCAL_HTTPS_ORIGIN,
+    ALLOWED_HOSTS=["localhost"],
+)
+def test_local_https_accepts_opaque_origin_only_with_a_valid_csrf_token(
+    admin_identity: tuple[User, str],
+) -> None:
+    _, password = admin_identity
+    client = Client(enforce_csrf_checks=True)
+    client.get(
+        reverse("login"),
+        HTTP_HOST=LOCAL_HTTPS_HOST,
+        REMOTE_ADDR="127.0.0.1",
+        secure=True,
+    )
+    token = client.cookies["__Host-agora_csrf"].value
+
+    missing_token = client.post(
+        reverse("login"),
+        {"soeid": "ADMIN.1", "password": password},
+        HTTP_HOST=LOCAL_HTTPS_HOST,
+        HTTP_ORIGIN="null",
+        REMOTE_ADDR="127.0.0.1",
+        secure=True,
+    )
+    assert missing_token.status_code == 403
+
+    success = client.post(
+        reverse("login"),
+        {"soeid": "ADMIN.1", "password": password},
+        HTTP_HOST=LOCAL_HTTPS_HOST,
+        HTTP_ORIGIN="null",
+        HTTP_X_CSRFTOKEN=token,
+        REMOTE_ADDR="127.0.0.1",
+        secure=True,
+    )
+    assert success.status_code == 302
+    assert client.get(reverse("home"), HTTP_HOST=LOCAL_HTTPS_HOST, secure=True).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("environment", "enabled", "remote_address", "secure"),
+    [
+        ("production", True, "127.0.0.1", True),
+        ("development", False, "127.0.0.1", True),
+        ("development", True, "192.0.2.10", True),
+        ("development", True, "127.0.0.1", False),
+    ],
+)
+@override_settings(
+    AGORA_PORTAL_ORIGIN=LOCAL_HTTPS_ORIGIN,
+    ALLOWED_HOSTS=["localhost"],
+)
+def test_opaque_origin_compatibility_fails_closed_outside_local_https(
+    admin_identity: tuple[User, str],
+    environment: str,
+    enabled: bool,
+    remote_address: str,
+    secure: bool,
+) -> None:
+    _, password = admin_identity
+    client = Client(enforce_csrf_checks=True)
+    client.get(reverse("login"), HTTP_HOST=LOCAL_HTTPS_HOST, secure=True)
+    token = client.cookies["__Host-agora_csrf"].value
+
+    with override_settings(
+        AGORA_ALLOW_OPAQUE_LOOPBACK_ORIGIN=enabled,
+        AGORA_ENVIRONMENT=environment,
+    ):
+        response = client.post(
+            reverse("login"),
+            {"soeid": "ADMIN.1", "password": password},
+            HTTP_HOST=LOCAL_HTTPS_HOST,
+            HTTP_ORIGIN="null",
+            HTTP_X_CSRFTOKEN=token,
+            REMOTE_ADDR=remote_address,
+            secure=secure,
+        )
+
+    assert response.status_code == 403
+
+
 def test_disabled_session_does_not_revive_after_reenable(
     admin_identity: tuple[User, str],
     regular_identity: tuple[User, str],
@@ -583,6 +669,7 @@ def test_admin_ui_has_privilege_boundary_and_explicit_mutations(
 
     listing = admin_client.get(reverse("admin-user-list"), HTTP_HOST=PORTAL_HOST)
     assert listing.status_code == 200
+    assert b'<body class="portal-page portal-page--workspace">' in listing.content
     assert b"ADMIN.1" in listing.content
     assert b"PERSON.1" in listing.content
     assert b"Create user" in listing.content

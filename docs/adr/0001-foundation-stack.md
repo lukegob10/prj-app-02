@@ -14,8 +14,9 @@ or independently deployed microservices.
 ## Decision
 
 Use a modular Django 5.2 LTS monolith on CPython 3.14, PostgreSQL 18 through Psycopg 3, and
-Django ORM migrations. Render the trusted UI with Django templates and committed CSS. Maintain
-two explicit web compositions:
+Django ORM migrations. Run Django's ASGI application with Uvicorn; Uvicorn is the network server,
+not a replacement for the application framework. Render the trusted UI with Django templates and
+committed CSS. Maintain two explicit web compositions:
 
 - portal settings/URLs/middleware/ASGI/WSGI for trusted UI, identity, and mutations;
 - content settings/URLs/middleware/ASGI/WSGI for narrow read-only authorized artifacts.

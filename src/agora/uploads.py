@@ -319,8 +319,11 @@ _CSV_CALL_RE: Final[re.Pattern[str]] = re.compile(
 )
 _DYNAMIC_NETWORK_RE: Final[re.Pattern[str]] = re.compile(
     r"(?is)\b(?:XMLHttpRequest|WebSocket|EventSource|ImportScripts|sendBeacon|"
-    r"navigator\s*\.\s*serviceWorker|serviceWorker|Worker|SharedWorker|"
-    r"import\s*\(|import\s*(?:['\"]|[A-Za-z_*{]))"
+    r"Worker|SharedWorker)\s*\(|"
+    r"navigator\s*\.\s*serviceWorker\b|"
+    r"\bserviceWorker\s*(?:\.|\[)|"
+    r"\bimport\s*\(|"
+    r"(?:^|[;{}\n])\s*import\s+(?:['\"{*A-Za-z_$])"
 )
 _FETCH_RE: Final[re.Pattern[str]] = re.compile(r"(?is)\bfetch\s*\(")
 _CSS_URL_RE: Final[re.Pattern[str]] = re.compile(r"(?is)\burl\s*\(\s*([^)]*)\)")
@@ -719,8 +722,6 @@ class _HtmlValidator(HTMLParser):
             ) from error
 
     def close(self) -> None:
-        if self.rawdata:
-            raise UploadValidationError(UploadIssue(UploadIssueCode.HTML_MALFORMED, self._index))
         try:
             super().close()
         except UploadRejected:

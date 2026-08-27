@@ -1,11 +1,12 @@
 {% extends "portal/base.html" %}
 
 {% block title %}Disable {{ target.soeid }} | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
 
 {% block content %}
   {% include "portal/components/page-header.html" with eyebrow="Administration" title="Disable account" intro="Disabling an account ends its active sessions on the next request and prevents further sign-in." %}
 
-  <section class="portal-section" aria-labelledby="disable-user-heading">
+  <section class="portal-section portal-section--compact" aria-labelledby="disable-user-heading">
     <div class="portal-danger-zone">
       <p class="portal-eyebrow portal-eyebrow--danger">Access removal</p>
       <h2 id="disable-user-heading">Disable {{ target.soeid }}?</h2>

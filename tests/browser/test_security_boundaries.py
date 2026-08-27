@@ -133,6 +133,21 @@ def test_two_hostile_documents_do_not_share_durable_browser_storage(
     assert all(request.cookie is None for request in browser_stack.content.requests())
 
 
+def test_opaque_sandbox_can_fetch_same_revision_csv(
+    page: Page,
+    browser_stack: BrowserFixtureStack,
+) -> None:
+    page.goto(browser_stack.portal.url("/fixture/csv"))
+    frame = _frame(page, "csv-content")
+    body = frame.locator("body")
+    expect(body).to_have_attribute("data-ready", "true", timeout=5_000)
+
+    assert body.get_attribute("data-csv") == "loaded"
+    csv_requests = browser_stack.content.requests_for("/fixture/data.csv")
+    assert len(csv_requests) == 1
+    assert csv_requests[0].cookie is None
+
+
 def test_clickjacking_is_blocked_and_content_accepts_only_the_portal_ancestor(
     page: Page, browser_stack: BrowserFixtureStack
 ) -> None:

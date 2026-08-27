@@ -135,7 +135,7 @@ class FixtureServer:
         if self.host == PORTAL_HOST:
             response = self._portal_response(path)
         elif self.host == CONTENT_HOST:
-            response = self._content_response(path)
+            response = self._content_response(path, origin=handler.headers.get("Origin"))
         else:
             response = self._attacker_response(path)
 
@@ -159,25 +159,36 @@ class FixtureServer:
             body = self._portal_page((("hostile-a", "/fixture/storage-a"),))
         elif path == "/fixture/storage-b":
             body = self._portal_page((("hostile-b", "/fixture/storage-b"),))
+        elif path == "/fixture/csv":
+            body = self._portal_page((("csv-content", "/fixture/csv"),))
         else:
             body = self._portal_page((("hostile-content", "/fixture/hostile"),))
         response = HttpResponse(body, content_type="text/html; charset=utf-8")
         response.set_cookie("portal_probe", "portal-only", httponly=True, samesite="Lax")
         return apply_portal_response_policy(response, content_origin=self.content_origin)
 
-    def _content_response(self, path: str) -> HttpResponse:
+    def _content_response(self, path: str, *, origin: str | None) -> HttpResponse:
         status = 200
+        content_type = "text/html; charset=utf-8"
         if path == "/fixture/hostile":
             body = _hostile_fixture(self.attacker_origin)
         elif path == "/fixture/storage-a":
             body = _storage_fixture(self.attacker_origin, role="a")
         elif path == "/fixture/storage-b":
             body = _storage_fixture(self.attacker_origin, role="b")
+        elif path == "/fixture/csv":
+            body = _csv_fixture()
+        elif path == "/fixture/data.csv":
+            body = "name,value\nalpha,1\n"
+            content_type = "text/csv; charset=utf-8"
         else:
             status = 404
             body = "<!doctype html><title>Unknown fixture</title>"
 
-        response = HttpResponse(body, status=status, content_type="text/html; charset=utf-8")
+        response = HttpResponse(body, status=status, content_type=content_type)
+        if path == "/fixture/data.csv" and origin == "null":
+            response.headers["Access-Control-Allow-Origin"] = "null"
+            response.headers["Vary"] = "Origin"
         response.set_cookie("content_probe", "must-be-removed")
         return apply_content_response_policy(response, portal_origin=self.portal_origin)
 
@@ -504,6 +515,28 @@ def _hostile_fixture(attacker_origin: str) -> str:
         output.dataset.results = JSON.stringify({{ fatal: String(error) }});
         document.body.dataset.ready = 'true';
       }});
+    </script>
+  </body>
+</html>
+"""
+
+
+def _csv_fixture() -> str:
+    return """<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>CSV fixture</title></head>
+  <body data-ready="false" data-csv="pending">
+    <script>
+      fetch('data.csv')
+        .then((response) => response.text())
+        .then((text) => {
+          document.body.dataset.csv = text.includes('alpha,1') ? 'loaded' : 'invalid';
+          document.body.dataset.ready = 'true';
+        })
+        .catch(() => {
+          document.body.dataset.csv = 'blocked';
+          document.body.dataset.ready = 'true';
+        });
     </script>
   </body>
 </html>

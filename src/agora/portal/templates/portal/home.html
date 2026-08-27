@@ -1,76 +1,140 @@
 {% extends "portal/base.html" %}
 
 {% block title %}Home | Agora{% endblock %}
-{% block body_class %} portal-page--foundation{% endblock %}
+{% block body_class %} portal-page--home{% endblock %}
 
 {% block content %}
   {% if request.user.is_authenticated %}
-    <header class="portal-page-header">
-      <div class="portal-page-header__copy">
-        <p class="portal-eyebrow">Trusted portal</p>
-        <h1>Welcome back, {{ request.user.soeid }}.</h1>
-        <p class="portal-page-header__intro">
-          Your secure portal session is active. Dashboard ownership, sharing, and publication
-          workflows will appear here as their MVP capabilities are completed.
-        </p>
-      </div>
-    </header>
+    {% url "project-create" as create_project_url %}
+    <div class="portal-home-dashboard">
+      <section class="portal-home-hero" aria-labelledby="home-heading">
+        <div class="portal-home-hero__copy">
+          <p class="portal-eyebrow">Welcome back, {{ request.user.soeid }}</p>
+          <h1 id="home-heading">Your projects, in one trusted place.</h1>
+          <p>Open a dashboard immediately, manage immutable revisions when needed, and return to work shared with your SOEID.</p>
+          <div class="portal-home-hero__actions">
+            <a class="portal-button portal-button--primary" href="{{ create_project_url }}">Create new project</a>
+            <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">Browse all projects</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="portal-home-projects" aria-labelledby="home-projects-heading">
+        <header class="portal-home-projects__header">
+          <p class="portal-eyebrow">Workspace</p>
+          <h2 id="home-projects-heading">Projects</h2>
+          <p>Return to dashboards you own or open published work shared with your SOEID.</p>
+        </header>
+        <div class="portal-home-project-stack">
+          <section class="portal-home-project-group" aria-labelledby="my-projects-heading">
+            <div class="portal-section__heading portal-section__heading--actions">
+              <div>
+                <p class="portal-eyebrow">Personal projects</p>
+                <h3 id="my-projects-heading">My projects</h3>
+              </div>
+              <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">View all</a>
+            </div>
+            {% if recent_owned %}
+              <div class="portal-table-wrap">
+                <table class="portal-table">
+                  <caption>Your most recently updated projects</caption>
+                  <thead>
+                    <tr><th scope="col">Project</th><th scope="col">Status</th><th scope="col">Latest revision</th><th scope="col">Updated</th></tr>
+                  </thead>
+                  <tbody>
+                    {% for project in recent_owned %}
+                      {% if project.latest_revision %}
+                        {% url "project-preview" project.id project.latest_revision.id as project_open_url %}
+                      {% else %}
+                        {% url "project-detail" project.id as project_open_url %}
+                      {% endif %}
+                      <tr>
+                        <td>
+                          <a class="portal-table__primary-link" href="{{ project_open_url }}">{{ project.name }}</a>
+                          {% if project.description %}<span class="portal-table__secondary">{{ project.description|truncatechars:100 }}</span>{% endif %}
+                        </td>
+                        <td>{% include "portal/components/status-badge.html" with label=project.get_state_display tone="info" %}</td>
+                        <td>{% if project.latest_revision %}Revision {{ project.latest_revision.number }}{% else %}No upload yet{% endif %}</td>
+                        <td>{{ project.updated_at|date:"M j, Y" }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              {% include "portal/components/empty-state.html" with heading_id="my-projects-empty" heading_level=4 title="Create your first project" message="A project holds one dashboard and its immutable HTML/CSV revisions." action_url=create_project_url action_label="Create new project" %}
+            {% endif %}
+          </section>
+
+          <section class="portal-home-project-group" aria-labelledby="shared-projects-heading">
+            <div class="portal-section__heading portal-section__heading--actions">
+              <div>
+                <p class="portal-eyebrow">Collaborative access</p>
+                <h3 id="shared-projects-heading">Shared with me</h3>
+              </div>
+              <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}?scope=shared">View all</a>
+            </div>
+            {% if recent_shared %}
+              <div class="portal-card-grid">
+                {% for project in recent_shared %}
+                  {% url "project-view" project.id as project_open_url %}
+                  <article class="portal-card">
+                    <div class="portal-card__header">
+                      <div><p class="portal-card__eyebrow">Shared by {{ project.owner.soeid }}</p><h4><a class="portal-card__title-link" href="{{ project_open_url }}">{{ project.name }}</a></h4></div>
+                      {% include "portal/components/status-badge.html" with label="Published" tone="positive" %}
+                    </div>
+                    <p>{{ project.description|default:"No description provided."|truncatechars:160 }}</p>
+                    <div class="portal-card__actions"><a class="portal-button portal-button--secondary" href="{{ project_open_url }}">Open dashboard</a></div>
+                  </article>
+                {% endfor %}
+              </div>
+            {% else %}
+              {% include "portal/components/empty-state.html" with heading_id="shared-empty" heading_level=4 title="Nothing has been shared with you yet" message="Published projects shared with your SOEID will appear here automatically." %}
+            {% endif %}
+          </section>
+        </div>
+      </section>
+    </div>
   {% else %}
     {% url "login" as login_url %}
-    {% include "portal/components/page-header.html" with eyebrow="Trusted portal" title="Secure dashboard publishing starts here." intro="Sign in with the SOEID assigned by an Agora administrator. Self-registration is not available." action_url=login_url action_label="Sign in" %}
+    <div class="portal-public-home">
+      <section class="portal-public-hero" aria-labelledby="home-heading">
+        <div class="portal-public-hero__copy">
+          <p class="portal-eyebrow">Secure dashboard publishing</p>
+          <h1 id="home-heading">Turn self-contained dashboards into governed projects.</h1>
+          <p>Agora gives owners one place to upload, version, publish, and share HTML dashboards with optional CSV data.</p>
+          <div class="portal-public-hero__actions">
+            <a class="portal-button portal-button--primary" href="{{ login_url }}">Sign in to Agora</a>
+          </div>
+        </div>
+        <aside class="portal-public-hero__summary" aria-label="Agora safeguards">
+          <p class="portal-eyebrow">Built for control</p>
+          <h2>A safer path from upload to audience.</h2>
+          <ul class="portal-public-highlights">
+            <li><span aria-hidden="true">01</span><div><strong>Immutable revisions</strong><p>Every accepted upload remains a distinct point in history.</p></div></li>
+            <li><span aria-hidden="true">02</span><div><strong>Isolated rendering</strong><p>Dashboard code runs outside the trusted portal origin.</p></div></li>
+            <li><span aria-hidden="true">03</span><div><strong>Scoped access</strong><p>Owners decide which authenticated viewers receive a publication.</p></div></li>
+          </ul>
+        </aside>
+      </section>
+
+      <section class="portal-public-workflow" aria-labelledby="workflow-heading">
+        <div class="portal-public-workflow__heading">
+          <p class="portal-eyebrow">Workspace flow</p>
+          <h2 id="workflow-heading">From project to published dashboard</h2>
+          <p>A focused workflow keeps dashboard ownership, revision history, and audience access together.</p>
+        </div>
+        <div class="portal-card-grid portal-card-grid--three">
+          {% include "portal/components/status-card.html" with eyebrow="1" title="Create a project" heading_level=3 text="Name the dashboard and keep ownership tied to your authenticated SOEID." %}
+          {% include "portal/components/status-card.html" with eyebrow="2" title="Upload a revision" heading_level=3 text="Add one self-contained HTML file with any CSV attachments as an immutable revision." %}
+          {% include "portal/components/status-card.html" with eyebrow="3" title="Preview and share" heading_level=3 text="Validate content in the isolated renderer, then publish deliberately to approved viewers." %}
+        </div>
+      </section>
+
+      <section class="portal-boundary-note portal-public-boundary" aria-labelledby="boundary-heading">
+        <div class="portal-boundary-note__heading"><span class="portal-boundary-note__marker" aria-hidden="true">✓</span><div><p class="portal-eyebrow">Trust boundary</p><h2 id="boundary-heading">Dashboard code stays outside the portal</h2></div></div>
+        <p>User-created HTML is treated as hostile and is delivered only from the isolated content origin.</p>
+      </section>
+    </div>
   {% endif %}
-
-  <section class="portal-section" aria-labelledby="foundation-status-heading">
-    <div class="portal-section__heading">
-      <p class="portal-eyebrow">Current state</p>
-      <h2 id="foundation-status-heading">A quiet, trusted starting point</h2>
-    </div>
-    <div class="portal-card-grid">
-      {% include "portal/components/status-card.html" with eyebrow="Available now" title="Trusted portal and identity boundary" heading_level=3 badge_label="Available" badge_tone="positive" text="The server-rendered portal keeps authentication, navigation, metadata, and controls in a trusted document." %}
-      {% include "portal/components/status-card.html" with eyebrow="Rendering boundary" title="Uploaded content is not enabled" heading_level=3 badge_label="Not enabled" badge_tone="warning" text="The content service currently fails closed. Uploaded HTML will execute only on the isolated content origin - never in this portal document." %}
-    </div>
-  </section>
-
-  <section class="portal-section" aria-labelledby="surface-heading">
-    <div class="portal-card portal-card--muted">
-      <p class="portal-card__eyebrow">Reusable foundation</p>
-      <h2 id="surface-heading">Ready for the next product surfaces</h2>
-      <p>
-        Dashboard workflows use the same page headers, cards, tables, forms, action groups,
-        status badges, alerts, and recovery states. No unavailable actions are shown on this
-        screen.
-      </p>
-      <ul class="portal-list portal-list--columns">
-        <li>Dashboard ownership and revision history</li>
-        <li>Secure preview and deliberate publication</li>
-        <li>Shared with Me and viewer recovery</li>
-      </ul>
-    </div>
-  </section>
-
-  <section class="portal-section" aria-labelledby="boundary-heading">
-    <div class="portal-boundary-note">
-      <div class="portal-boundary-note__heading">
-        <span class="portal-boundary-note__marker" aria-hidden="true">✓</span>
-        <div>
-          <p class="portal-eyebrow">Trust boundary</p>
-          <h2 id="boundary-heading">The portal stays separate from user-created content</h2>
-        </div>
-      </div>
-      <p>
-        Uploaded HTML and CSV bytes are hostile artifacts. They are kept out of portal templates
-        and the portal DOM, with delivery reserved for the isolated content service.
-      </p>
-      <dl class="portal-definition-list">
-        <div>
-          <dt>Trusted portal</dt>
-          <dd>This origin</dd>
-        </div>
-        <div>
-          <dt>Configured content origin</dt>
-          <dd><code>{{ content_origin }}</code></dd>
-        </div>
-      </dl>
-    </div>
-  </section>
 {% endblock %}

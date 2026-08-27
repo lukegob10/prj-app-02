@@ -1,0 +1,30 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Create project | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow="New dashboard project" title="Create a project" intro="Start with trusted metadata. Your project is private and unpublished until you deliberately share it." %}
+  <section class="portal-section portal-section--compact" aria-label="Create project form">
+    <form class="portal-card portal-form-stack" method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+        <p class="portal-form-field__help">{{ form.name.help_text }}</p>
+        {{ form.name }}
+        {% if form.name.errors %}<div class="portal-form-field__error" role="alert">{{ form.name.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+        <p class="portal-form-field__help">{{ form.description.help_text }}</p>
+        {{ form.description }}
+        {% if form.description.errors %}<div class="portal-form-field__error" role="alert">{{ form.description.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-action-group">
+        <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">Cancel</a>
+        <button class="portal-button portal-button--primary" type="submit">Create project</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

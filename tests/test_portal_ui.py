@@ -17,6 +17,7 @@ PORTAL_CSS = (
     / "portal"
     / "foundation.css"
 )
+BRAND_ROOT = PORTAL_CSS.parent / "brand"
 
 
 class DocumentParser(HTMLParser):
@@ -56,7 +57,7 @@ def test_portal_shell_renders_accessible_landmarks_and_truthful_states(client: C
     assert response.status_code == 200
     assert document.lstrip().lower().startswith("<!doctype html>")
     assert parser.attributes_for("html") == [{"lang": "en"}]
-    assert len(parser.attributes_for("header")) == 2
+    assert len(parser.attributes_for("header")) == 1
     assert len(parser.attributes_for("nav")) == 1
     assert len(parser.attributes_for("main")) == 1
     assert len(parser.attributes_for("footer")) == 1
@@ -68,18 +69,51 @@ def test_portal_shell_renders_accessible_landmarks_and_truthful_states(client: C
 
     links = parser.attributes_for("a")
     assert {link.get("href") for link in links} >= {"#main-content", "/"}
+    assert sum(link.get("href") == "/login/" for link in links) == 1
     assert any(link.get("class") == "portal-skip-link" for link in links)
     assert any(link.get("aria-current") == "page" for link in links)
+    assert any(
+        image.get("class") == "portal-brand__wordmark"
+        and image.get("alt") == "Agora"
+        for image in parser.attributes_for("img")
+    )
     assert parser.attributes_for("nav")[0].get("aria-label") == "Primary navigation"
     assert parser.attributes_for("summary")[0].get("aria-controls") == "primary-navigation-menu"
 
     headings = [element for element, _ in parser.elements if element in {"h1", "h2", "h3"}]
     assert headings.count("h1") == 1
     assert headings[:2] == ["h1", "h2"]
-    assert "Secure dashboard publishing starts here" in parser.text
-    assert "Uploaded content is not enabled" in parser.text
-    assert "No unavailable actions are shown" in parser.text
+    assert "Turn self-contained dashboards into governed projects" in parser.text
+    assert "From project to published dashboard" in parser.text
+    assert "Dashboard code stays outside the portal" in parser.text
+    assert "Sign in" in parser.text
+    assert 'class="portal-public-hero"' in document
+    assert 'class="portal-public-workflow"' in document
+    assert "portal-brand__mark" not in document
     assert "recommend" not in document.lower()
+
+
+@pytest.mark.smoke
+def test_login_page_uses_one_compact_sign_in_surface(client: Client) -> None:
+    response = client.get("/login/", HTTP_HOST="portal.agora.test")
+    document = response.content.decode()
+    parser = DocumentParser()
+    parser.feed(document)
+
+    assert response.status_code == 200
+    assert '<body class="portal-page portal-page--login">' in document
+    assert 'class="portal-login-card"' in document
+    assert 'class="portal-form-stack portal-login-form"' in document
+    assert sum(link.get("href") == "/login/" for link in parser.attributes_for("a")) == 0
+    assert parser.attributes_for("button") == [
+        {"class": "portal-button portal-button--primary", "type": "submit"}
+    ]
+    assert len(parser.attributes_for("h1")) == 1
+    soeid_input = next(
+        item for item in parser.attributes_for("input") if item.get("id") == "id_soeid"
+    )
+    assert soeid_input.get("autofocus") is None
+    assert "autofocus" in soeid_input
 
 
 @pytest.mark.smoke
@@ -93,10 +127,38 @@ def test_portal_shell_is_csp_compatible_and_uses_the_committed_stylesheet(client
         link for link in parser.attributes_for("link") if link.get("rel") == "stylesheet"
     ]
     assert stylesheets == [{"rel": "stylesheet", "href": "/static/portal/foundation.css"}]
+    icon_links = [
+        link
+        for link in parser.attributes_for("link")
+        if link.get("rel") in {"icon", "apple-touch-icon"}
+    ]
+    assert icon_links == [
+        {
+            "rel": "icon",
+            "type": "image/png",
+            "sizes": "32x32",
+            "href": "/static/portal/brand/favicon-32.png",
+        },
+        {
+            "rel": "icon",
+            "type": "image/png",
+            "sizes": "192x192",
+            "href": "/static/portal/brand/favicon-192.png",
+        },
+        {
+            "rel": "apple-touch-icon",
+            "sizes": "180x180",
+            "href": "/static/portal/brand/apple-touch-icon.png",
+        },
+    ]
     assert parser.attributes_for("script") == []
     assert parser.attributes_for("style") == []
     assert all(not name.lower().startswith("on") for _, attrs in parser.elements for name in attrs)
     assert finders.find("portal/foundation.css") == str(PORTAL_CSS)
+    assert finders.find("portal/brand/agora-wordmark-color.png") == str(
+        BRAND_ROOT / "agora-wordmark-color.png"
+    )
+    assert finders.find("portal/brand/favicon-32.png") == str(BRAND_ROOT / "favicon-32.png")
     assert "script-src 'none'" in response.headers["Content-Security-Policy"]
     assert "style-src 'self'" in response.headers["Content-Security-Policy"]
 
@@ -117,6 +179,7 @@ def test_foundation_css_declares_responsive_accessibility_and_component_contract
         assert unnamespaced_token not in css
     for rule in (
         ".portal-card",
+        ".portal-brand__wordmark",
         ".portal-table",
         ".portal-form-field",
         ".portal-button",
@@ -125,12 +188,29 @@ def test_foundation_css_declares_responsive_accessibility_and_component_contract
         ".portal-state",
         ".portal-danger-zone",
         ".portal-nav__mobile",
+        ".portal-page--render",
+        ".portal-render-details__panel",
+        ".portal-render-details__meta",
+        ".portal-home-hero",
+        ".portal-home-projects",
+        ".portal-home-project-stack",
+        ".portal-public-hero",
+        ".portal-public-workflow",
+        ".portal-page--login",
+        ".portal-login-card",
+        ".portal-page--workspace",
+        ".portal-section--compact",
+        "clip-path: inset(50%)",
+        "height: 100dvh",
         ":focus-visible",
         "@media (prefers-reduced-motion: reduce)",
         "@media (prefers-contrast: more)",
         "@media (forced-colors: active)",
     ):
         assert rule in css
+    assert ".portal-render-shell__back" not in css
+    assert ".portal-brand__mark" not in css
+    assert ".portal-home-hero__stats" not in css
 
 
 def test_reusable_components_render_safe_semantic_markup() -> None:
@@ -207,6 +287,18 @@ def test_card_heading_level_can_follow_the_surrounding_document() -> None:
     parser.feed(rendered)
 
     assert len(parser.attributes_for("h3")) == 1
+    assert parser.attributes_for("h2") == []
+
+
+def test_empty_state_heading_level_can_follow_the_surrounding_document() -> None:
+    rendered = render_component(
+        "empty-state",
+        {"title": "Nested state", "message": "No rows", "heading_level": 4},
+    )
+    parser = DocumentParser()
+    parser.feed(rendered)
+
+    assert len(parser.attributes_for("h4")) == 1
     assert parser.attributes_for("h2") == []
 
 

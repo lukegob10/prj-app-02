@@ -1,0 +1,62 @@
+{% extends "portal/base.html" %}
+
+{% block title %}{{ project.name }} | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% if is_owner %}
+    {% url "project-upload" project.id as upload_url %}
+    {% include "portal/components/page-header.html" with eyebrow="Owned project" title=project.name intro=project.description|default:"Add a description to help viewers understand this dashboard." action_url=upload_url action_label="Upload revision" %}
+  {% else %}
+    {% url "project-view" project.id as view_url %}
+    {% include "portal/components/page-header.html" with eyebrow="Shared project" title=project.name intro=project.description|default:"No description was provided for this dashboard." action_url=view_url action_label="Open dashboard" %}
+  {% endif %}
+
+  <section class="portal-section" aria-labelledby="project-status-heading">
+    <div class="portal-section__heading portal-section__heading--actions">
+      <div><p class="portal-eyebrow">Overview</p><h2 id="project-status-heading">Project status</h2></div>
+      {% if is_owner and project.latest_revision %}<a class="portal-button portal-button--secondary" href="{% url 'project-preview' project.id project.latest_revision.id %}">Preview latest</a>{% endif %}
+    </div>
+    <dl class="portal-metric-grid">
+      <div><dt>Status</dt><dd>{% include "portal/components/status-badge.html" with label=project.get_state_display tone="info" %}</dd></div>
+      <div><dt>{% if is_owner %}Latest revision{% else %}Published revision{% endif %}</dt><dd>{% if is_owner and project.latest_revision %}{{ project.latest_revision.number }}{% elif not is_owner and project.published_revision %}{{ project.published_revision.number }}{% else %}-{% endif %}</dd></div>
+      {% if is_owner %}<div><dt>Active viewers</dt><dd>{{ viewer_count }}</dd></div>{% endif %}
+      <div><dt>Last updated</dt><dd>{{ project.updated_at|date:"M j, Y, g:i a" }}</dd></div>
+    </dl>
+  </section>
+
+  {% if is_owner %}
+    <section class="portal-section" aria-labelledby="revision-history-heading">
+      <div class="portal-section__heading portal-section__heading--actions">
+        <div><p class="portal-eyebrow">Immutable history</p><h2 id="revision-history-heading">Revisions</h2></div>
+        <a class="portal-button portal-button--secondary" href="{% url 'project-upload' project.id %}">Upload revision</a>
+      </div>
+      {% if revisions %}
+        <div class="portal-table-wrap">
+          <table class="portal-table">
+            <caption>Uploaded dashboard revisions</caption>
+            <thead><tr><th scope="col">Revision</th><th scope="col">Files</th><th scope="col">Uploaded</th><th scope="col">Publication</th><th scope="col"><span class="portal-visually-hidden">Action</span></th></tr></thead>
+            <tbody>
+              {% for revision in revisions %}
+                <tr>
+                  <td><strong>Revision {{ revision.number }}</strong></td>
+                  <td><ul class="portal-file-list">{% for artifact in revision.artifacts.all %}<li><span>{{ artifact.logical_name }}</span><span>{{ artifact.kind|upper }} · {{ artifact.byte_size|filesizeformat }}</span></li>{% endfor %}</ul></td>
+                  <td>{{ revision.created_at|date:"M j, Y, g:i a" }}</td>
+                  <td>{% if project.published_revision_id == revision.id %}{% include "portal/components/status-badge.html" with label="Published" tone="positive" %}{% elif project.latest_revision_id == revision.id %}{% include "portal/components/status-badge.html" with label="Latest" tone="info" %}{% else %}<span class="portal-table__secondary">Retained</span>{% endif %}</td>
+                  <td><a class="portal-button portal-button--quiet" href="{% url 'project-preview' project.id revision.id %}">Preview</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        {% url "project-upload" project.id as upload_url %}
+        {% include "portal/components/empty-state.html" with heading_id="revision-empty" title="Upload the first revision" message="Choose one self-contained HTML dashboard and any CSV files it references." action_url=upload_url action_label="Upload revision" %}
+      {% endif %}
+    </section>
+  {% else %}
+    <section class="portal-section" aria-labelledby="viewer-access-heading">
+      <div class="portal-boundary-note"><div class="portal-boundary-note__heading"><span class="portal-boundary-note__marker" aria-hidden="true">✓</span><div><p class="portal-eyebrow">Viewer access</p><h2 id="viewer-access-heading">Published dashboard access</h2></div></div><p>This project was shared by {{ project.owner.soeid }}. Viewer access includes every CSV attached to its published revision.</p><div class="portal-card__actions"><a class="portal-button portal-button--primary" href="{% url 'project-view' project.id %}">Open dashboard</a></div></div>
+    </section>
+  {% endif %}
+{% endblock %}

@@ -2,8 +2,7 @@
   <div class="portal-container portal-header__inner">
     <div class="portal-brand-group">
       <a class="portal-brand" href="/" aria-label="Agora home">
-        <span class="portal-brand__mark" aria-hidden="true">A</span>
-        <span>Agora</span>
+        {% include "portal/partials/brand-wordmark.html" %}
       </a>
       {% if environment %}
         <span class="portal-environment">{{ environment }}</span>
@@ -12,7 +11,7 @@
 
     {% include "portal/partials/primary-nav.html" %}
 
-    {% if account %}
+    {% if account and not hide_account_menu %}
       {% include "portal/partials/account-menu.html" %}
     {% endif %}
   </div>

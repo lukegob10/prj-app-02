@@ -1,12 +1,41 @@
-"""Fail-closed content routes; authorized artifact routes arrive in AG-007."""
+"""Narrow, read-only routes for authorized isolated dashboard artifacts."""
 
 from django.http import HttpRequest, HttpResponse, HttpResponseNotFound
-from django.urls import re_path
+from django.urls import path, re_path
+
+from agora.persistence.models import RenderAuthorization
+from agora.rendering.views import render_csv, render_html
 
 
 def content_not_available(request: HttpRequest) -> HttpResponse:
-    """Reject every content path until an authorized AG-007 route replaces this guard."""
+    """Reject every path not matched by the exact authorized renderer surface."""
     return HttpResponseNotFound()
 
 
-urlpatterns = [re_path(r"^", content_not_available, name="content-not-available")]
+urlpatterns = [
+    path(
+        "render/preview/<str:token>/",
+        render_html,
+        {"audience": RenderAuthorization.Audience.PREVIEW},
+        name="render-preview-html",
+    ),
+    path(
+        "render/preview/<str:token>/<str:logical_name>",
+        render_csv,
+        {"audience": RenderAuthorization.Audience.PREVIEW},
+        name="render-preview-csv",
+    ),
+    path(
+        "render/viewer/<str:token>/",
+        render_html,
+        {"audience": RenderAuthorization.Audience.VIEWER},
+        name="render-viewer-html",
+    ),
+    path(
+        "render/viewer/<str:token>/<str:logical_name>",
+        render_csv,
+        {"audience": RenderAuthorization.Audience.VIEWER},
+        name="render-viewer-csv",
+    ),
+    re_path(r"^", content_not_available, name="content-not-available"),
+]

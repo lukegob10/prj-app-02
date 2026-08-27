@@ -24,18 +24,35 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "agora.middleware.LoopbackOpaqueOriginMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "agora.middleware.PortalSecurityHeadersMiddleware",
 ]
+
+_PORTAL_TEMPLATE_SOURCES = (
+    "django.template.loaders.filesystem.Loader",
+    "django.template.loaders.app_directories.Loader",
+)
+
+
+def _portal_template_loaders(*, cache: bool) -> list[object]:
+    """Keep production templates cached while making browser refresh truthful in development."""
+    sources: list[object] = list(_PORTAL_TEMPLATE_SOURCES)
+    if cache:
+        return [("django.template.loaders.cached.Loader", sources)]
+    return sources
+
+
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [],
-        "APP_DIRS": True,
+        "APP_DIRS": False,
         "OPTIONS": {
+            "loaders": _portal_template_loaders(cache=not DEBUG),
             "context_processors": [
                 "django.template.context_processors.request",
                 "django.contrib.messages.context_processors.messages",
@@ -55,6 +72,12 @@ CSRF_COOKIE_PATH = "/"
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = True
 CSRF_TRUSTED_ORIGINS = [RUNTIME.portal_origin.value]
+AGORA_ALLOW_OPAQUE_LOOPBACK_ORIGIN = (
+    RUNTIME.environment == "development"
+    and RUNTIME.portal_origin.scheme == "https"
+    and RUNTIME.portal_origin.hostname in {"127.0.0.1", "::1", "localhost"}
+    and os.environ.get("AGORA_ALLOW_OPAQUE_LOOPBACK_ORIGIN") == "true"
+)
 SESSION_COOKIE_AGE = 8 * 60 * 60
 SESSION_COOKIE_NAME = "__Host-agora_session"
 SESSION_COOKIE_DOMAIN = None

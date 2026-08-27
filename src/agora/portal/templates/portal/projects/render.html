@@ -1,0 +1,55 @@
+{% extends "portal/base.html" %}
+
+{% block title %}{% if is_preview %}Preview{% else %}View{% endif %} {{ project.name }} | Agora{% endblock %}
+{% block body_class %} portal-page--render{% endblock %}
+
+{% block content %}
+  {% url "project-detail" project.id as project_url %}
+  <section class="portal-render-shell" aria-labelledby="dashboard-frame-heading">
+    <div class="portal-render-shell__bar">
+      <nav class="portal-render-shell__identity" aria-label="Dashboard navigation">
+        <a class="portal-brand portal-render-shell__brand" href="/" aria-label="Agora home">
+          {% include "portal/partials/brand-wordmark.html" %}
+        </a>
+        <div class="portal-render-shell__title">
+          <p class="portal-eyebrow">{% if is_preview %}Private owner preview{% else %}Published dashboard · User-created content{% endif %} · Revision {{ revision.number }}</p>
+          <h1 id="dashboard-frame-heading" title="{{ project.name }}">{{ project.name }}</h1>
+        </div>
+      </nav>
+      <div class="portal-render-shell__meta">
+        {% if is_preview %}{% include "portal/components/status-badge.html" with label="Private preview" tone="warning" %}{% else %}{% include "portal/components/status-badge.html" with label="Published" tone="positive" %}{% endif %}
+        <details class="portal-render-details">
+          <summary aria-label="Dashboard details">Details</summary>
+          <div class="portal-render-details__panel">
+            <p class="portal-eyebrow">Dashboard details</p>
+            <h2>{{ project.name }}</h2>
+            <p>{{ project.description|default:"No project description was provided." }}</p>
+            <dl class="portal-render-details__meta">
+              <div><dt>Revision</dt><dd>{{ revision.number }}</dd></div>
+              <div><dt>Access</dt><dd>{% if is_preview %}Private preview{% else %}Published{% endif %}</dd></div>
+            </dl>
+            <h3>Isolated renderer</h3>
+            <p>Uploaded HTML runs in a sandbox on a separate origin. This authorization expires at {{ expires_at|date:"g:i:s a T" }} and refreshes when this page reloads.</p>
+            <h3>Files available to this dashboard</h3>
+            <ul class="portal-file-list">
+              {% for artifact in artifacts %}
+                <li><span>{{ artifact.logical_name }}</span><span>{{ artifact.kind|upper }} · {{ artifact.byte_size|filesizeformat }}</span></li>
+              {% endfor %}
+            </ul>
+            <p class="portal-help-text">Anyone authorized to view this revision can retrieve every CSV listed here.</p>
+            <div class="portal-render-details__actions">
+              <a class="portal-button portal-button--secondary" href="{{ project_url }}">{% if request.user.id == project.owner_id %}Open project details{% else %}View project information{% endif %}</a>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+    <iframe
+      class="portal-dashboard-frame"
+      src="{{ iframe_src }}"
+      sandbox="{{ iframe_sandbox }}"
+      referrerpolicy="{{ iframe_referrerpolicy }}"
+      title="{{ project.name }} dashboard, revision {{ revision.number }}"
+    ></iframe>
+  </section>
+{% endblock %}

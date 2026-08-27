@@ -517,6 +517,101 @@ class ViewerGrant(models.Model):
             raise ValidationError({"revoked_by": "only the dashboard owner can revoke a grant"})
 
 
+class RenderAuthorization(models.Model):
+    """Short-lived, hashed bearer authorization for the isolated content origin."""
+
+    class Audience(models.TextChoices):
+        PREVIEW = "preview", "Owner preview"
+        VIEWER = "viewer", "Published viewer"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    token_digest = models.CharField(max_length=64, unique=True, editable=False)
+    audience = models.CharField(max_length=8, choices=Audience)
+    viewer = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="render_authorizations",
+    )
+    viewer_auth_version = models.PositiveBigIntegerField(editable=False)
+    dashboard = models.ForeignKey(
+        Dashboard,
+        on_delete=models.PROTECT,
+        related_name="render_authorizations",
+    )
+    revision = models.ForeignKey(
+        Revision,
+        on_delete=models.PROTECT,
+        related_name="render_authorizations",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=models.Q(token_digest__regex=SHA256_PATTERN),
+                name="agora_render_token_digest_format",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(audience__in=["preview", "viewer"]),
+                name="agora_render_audience_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(viewer_auth_version__gt=0),
+                name="agora_render_auth_version_positive",
+            ),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=("expires_at",), name="agora_render_expiry_idx"),
+            models.Index(
+                fields=("dashboard", "viewer", "audience"),
+                name="agora_render_scope_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.id}:{self.audience}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self._state.adding:
+            original = type(self).objects.get(pk=self.pk)
+            immutable = (
+                "id",
+                "token_digest",
+                "audience",
+                "viewer_id",
+                "viewer_auth_version",
+                "dashboard_id",
+                "revision_id",
+                "created_at",
+                "expires_at",
+            )
+            if any(getattr(original, field) != getattr(self, field) for field in immutable):
+                raise ImmutableRecordError("render authorization scope is immutable")
+            if original.revoked_at is not None and self.revoked_at != original.revoked_at:
+                raise ImmutableRecordError("render authorization revocation is immutable")
+        self.full_clean(validate_unique=False)
+        super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        raise ImmutableRecordError("render authorizations expire or are revoked")
+
+    def clean(self) -> None:
+        super().clean()
+        if self.revision_id is not None and self.dashboard_id is not None:
+            if self.revision.dashboard_id != self.dashboard_id:
+                raise ValidationError({"revision": "revision must belong to the dashboard"})
+        if (
+            self._state.adding
+            and self.viewer_id is not None
+            and self.viewer_auth_version != self.viewer.auth_version
+        ):
+            raise ValidationError(
+                {"viewer_auth_version": "authorization must bind the current user version"}
+            )
+
+
 class AuditEvent(models.Model):
     """Append-only, content-free record of a security-relevant domain event."""
 

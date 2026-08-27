@@ -1,6 +1,11 @@
 <section class="portal-state portal-state--empty"{% if heading_id %} aria-labelledby="{{ heading_id }}"{% endif %}>
   <span class="portal-state__marker" aria-hidden="true">-</span>
-  <h2{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title|default:'Nothing here yet' }}</h2>
+  {% if heading_level == 3 %}<h3{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title|default:'Nothing here yet' }}</h3>
+  {% elif heading_level == 4 %}<h4{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title|default:'Nothing here yet' }}</h4>
+  {% elif heading_level == 5 %}<h5{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title|default:'Nothing here yet' }}</h5>
+  {% elif heading_level == 6 %}<h6{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title|default:'Nothing here yet' }}</h6>
+  {% else %}<h2{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title|default:'Nothing here yet' }}</h2>
+  {% endif %}
   <p>{{ message }}</p>
   {% if action_url and action_label %}
     <div class="portal-state__actions">

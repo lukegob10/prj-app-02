@@ -1,0 +1,8 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Project unavailable | Agora{% endblock %}
+
+{% block content %}
+  {% url "project-list" as projects_url %}
+  {% include "portal/components/error-state.html" with heading_id="project-not-found" title="Project unavailable" message="The project does not exist or is not available to your SOEID." action_url=projects_url action_label="Back to projects" %}
+{% endblock %}

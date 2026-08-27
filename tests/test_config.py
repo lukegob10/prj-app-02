@@ -9,6 +9,7 @@ from django.test import override_settings
 
 from agora.config import RuntimeConfig, ServiceName, load_service_secret
 from agora.persistence.checks import _overlaps, private_artifact_root_check
+from agora.settings.portal import _portal_template_loaders
 
 
 def valid_environment(tmp_path: Path) -> dict[str, str]:
@@ -26,6 +27,18 @@ def valid_environment(tmp_path: Path) -> dict[str, str]:
         "AGORA_DB_PORT": "5432",
         "AGORA_ARTIFACT_ROOT": str(tmp_path / "artifacts"),
     }
+
+
+def test_portal_template_cache_is_disabled_only_for_development_refresh() -> None:
+    sources = [
+        "django.template.loaders.filesystem.Loader",
+        "django.template.loaders.app_directories.Loader",
+    ]
+
+    assert _portal_template_loaders(cache=False) == sources
+    assert _portal_template_loaders(cache=True) == [
+        ("django.template.loaders.cached.Loader", sources)
+    ]
 
 
 def test_configuration_accepts_explicit_safe_values(tmp_path: Path) -> None:

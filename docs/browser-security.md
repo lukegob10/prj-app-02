@@ -1,9 +1,10 @@
 # Browser-security verification baseline
 
-This document records the NOR-11/NOR-15 browser-security slice. It is an automated
-characterization of the production policy primitives, not an artifact-delivery implementation.
-The production content URLconf remains a catch-all `404`; no uploaded bytes, CSV/artifact route,
-authorization token, session, or render credential is created by this slice.
+This document records the NOR-11/NOR-15 browser-security fixture slice. It characterizes the
+same policy primitives used by the artifact-delivery implementation. Production now has exact
+authorized HTML/CSV routes in front of a catch-all `404`; the browser fixtures intentionally do
+not create real uploads or render credentials, while Django integration tests cover that server
+authorization and delivery surface.
 
 ## Stack and execution
 
@@ -41,12 +42,15 @@ the pinned Chromium binary has been installed. CI performs that install before t
 | Navigation and capability restrictions | Hostile attempts at top navigation, popups, forms, nested frames, workers, and service-worker registration fail or produce no sink request. |
 | Common exfiltration | The attacker sink receives no requests from external script/style/image/font/media, CSS URLs, fetch, XHR, WebSocket, EventSource, beacon, prefetch, form, popup, navigation, or worker attempts. |
 | Hostile-document storage | Two sandboxed hostile documents cannot share Web Storage, Cache Storage, or IndexedDB state; opaque-origin cookie access is denied/empty and worker creation is blocked. |
-| Default deny | Django client coverage still exercises arbitrary content paths and methods against the production catch-all `404`. |
+| Revision CSV access | An opaque sandbox can fetch a Revision-relative CSV only when the authorized CSV response returns exact `Access-Control-Allow-Origin: null`; no credentialed or wildcard CORS is enabled. |
+| Default deny | Django client coverage exercises arbitrary content paths, wrong audiences, altered/expired/revoked credentials, missing CSV names, and unsupported methods against the production URLconf. |
 
 The browser observations are intentionally behavioral. For example, a sandboxed Chromium document
 may serialize `location.origin` as its URL origin while its cookie/storage access throws because
 the `allow-same-origin` flag is absent. The suite asserts those enforceable storage and DOM
-boundaries plus the actual request headers instead of treating `Origin: null` text as authority.
+boundaries plus the actual request headers. `Origin: null` is only a narrowly allowed transport
+condition after the server has independently authorized the render token and exact CSV; it is
+never treated as authority.
 
 ## Residual risks and non-claims
 
@@ -62,8 +66,9 @@ boundaries plus the actual request headers instead of treating `Origin: null` te
   explicit supported-browser matrix with their own hostname/TLS setup before claiming
   cross-engine acceptance.
 - The fixture server intentionally does not prove artifact authorization, CSV MIME handling,
-  render-token expiry/revocation, or publication behavior; those remain later AG-007/AG-011
-  work once the corresponding product routes exist.
+  render-token expiry/revocation, or publication behavior. PostgreSQL-backed integration tests now
+  prove those server decisions, but a production-route browser test remains before claiming the
+  full multi-browser AG-007/AG-011 acceptance matrix.
 
 The normative policy source remains [`docs/threat-model.md`](./threat-model.md), especially its
 future content response policy and residual-risk sections. The sandbox and origin rules are based

@@ -36,7 +36,7 @@ flowchart LR
   PORTAL --> IDENTITY
   IDENTITY --> POLICY
   POLICY --> DB
-  PORTAL -. future short-lived render bootstrap .-> IFRAME
+  PORTAL -->|short-lived render authorization| IFRAME
   IFRAME -->|content-scoped authorization only| CONTENT
   CONTENT --> POLICY
   CONTENT --> STORAGE
@@ -44,21 +44,21 @@ flowchart LR
   IFRAME -. common channels restricted by CSP .-> INTERNET[External network]
 ```
 
-Dashed edges describe the AG-007 renderer contract, not a feature implemented in AG-001.
+The rendered edge is implemented for exact owner previews and pinned published views. It never
+returns uploaded bytes through the portal process.
 
 ## Local-development topology
 
 | Surface | URL | Process | Trust |
 |---|---|---|---|
-| Portal | `http://portal.agora.test:8000` | `agora.settings.portal` | Trusted UI; exact host allowlist. |
-| Content | `http://content.agorausercontent.test:8001` | `agora.settings.content` | Untrusted/read-only; currently no routes and fails closed. |
+| Portal | `https://localhost:8443` | `scripts/run_https.py` → `agora.settings.portal` | Trusted UI; host-only secure cookies. |
+| Content | `https://127.0.0.1:8444` | `scripts/run_content_https.py` → `agora.settings.content` | Untrusted/read-only; exact authorized routes plus catch-all 404. |
 | PostgreSQL | `127.0.0.1:5432` | Compose `postgres` service | Metadata boundary; not browser-accessible. |
 | Artifacts | absolute `AGORA_ARTIFACT_ROOT` | AG-002 private filesystem adapter | Opaque generated keys only; never a static/media root or raw URL. |
 
-Both names map to `127.0.0.1`, but use different sites deliberately. Ports alone do not isolate
-cookies, and SameSite is not an origin boundary. Local HTTP is permitted only for the
-loopback-only foundation, with no real credentials or uploaded data. Before AG-003/AG-007
-browser flows are accepted, local TLS must terminate for both names. Production validation
+Both URLs terminate on loopback but use different browser hostnames deliberately. Ports alone do
+not isolate cookies, and SameSite is not an origin boundary. Local TLS terminates for both entry
+points using ignored development material. Production validation
 requires distinct HTTPS origins, and operations must place them on different registrable sites
 where firm DNS permits.
 
@@ -80,8 +80,20 @@ supported-browser tests and any additional egress controls required by the deplo
 
 The source tree encodes the split with distinct settings, URLconfs, ASGI/WSGI applications, and
 middleware. Both compositions load the shared persistence models, but the content composition
-still has no sessions, templates, mutation routes, or portal middleware. Its catch-all URL returns
-404 with a default-deny CSP. The portal host allowlist excludes the content hostname.
+has no sessions, templates, mutation routes, or portal middleware. Its exact renderer routes are
+GET/HEAD-only and every unmatched path returns 404 with a default-deny CSP. The portal host
+allowlist excludes the content hostname.
+
+Portal-issued render credentials are 256-bit random values stored only as SHA-256 digests. They
+expire after five minutes and bind viewer, current authentication version, Dashboard, Revision,
+audience, and current authorization state. The content process rechecks expiry, revocation,
+active-user state, ownership or Viewer Grant, publication pointer, and artifact scope for every
+HTML and CSV request. The local content launcher disables access logging because the short-lived
+bearer appears in the iframe path; production proxies must apply equivalent path redaction.
+Because `sandbox="allow-scripts"` gives uploaded HTML an opaque origin, only an already-authorized
+CSV response may opt into the exact `Access-Control-Allow-Origin: null` value. It also varies on
+`Origin`, never enables credentials or a wildcard, and grants nothing to HTML, failures, or
+non-null origins.
 
 ## Module ownership
 
@@ -91,8 +103,9 @@ src/agora/settings/base.py   non-browser shared settings
 src/agora/settings/portal.py trusted portal composition
 src/agora/settings/content.py isolated content composition
 src/agora/urls/portal.py     trusted UI/API routes only
-src/agora/urls/content.py    future authorized artifact routes only
-src/agora/portal/            foundation portal UI
+src/agora/urls/content.py    exact authorized HTML/CSV routes plus catch-all 404
+src/agora/rendering/         render authorization, delivery, CSP, and sandbox policy
+src/agora/portal/            trusted project, upload, preview, identity, and admin UI
 src/agora/persistence/       constrained metadata, domain services, migrations, private storage
 ```
 

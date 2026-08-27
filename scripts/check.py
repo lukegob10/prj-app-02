@@ -18,7 +18,10 @@ CHECKS = (
     Check("format", ("ruff", "format", "--check", ".")),
     Check("lint", ("ruff", "check", ".")),
     Check("types", ("mypy", "src", "tests", "scripts")),
-    Check("bytecode compile", (sys.executable, "-m", "compileall", "-q", "src")),
+    Check(
+        "bytecode compile",
+        (sys.executable, "-m", "compileall", "-q", "src", "scripts"),
+    ),
     Check("portal system checks", (sys.executable, "manage.py", "check", "--database", "default")),
     Check(
         "content system checks",

@@ -411,6 +411,30 @@ def test_html_allows_inline_css_js_safe_media_and_revision_csv_references() -> N
         staged.close()
 
 
+def test_html_allows_library_text_that_only_mentions_import_words() -> None:
+    body = (
+        b"<script>"
+        b"const important = true;"
+        b"const message = 'Please import and register the plugin';"
+        b"</script>"
+    )
+    staged = stage_upload([part("dashboard.html", [valid_html(body)])])
+    staged.close()
+
+
+def test_large_inline_script_is_validated_independently_of_chunk_boundaries() -> None:
+    content = valid_html(b"<script>" + (b"void 0;\n" * 20_000) + b"</script>")
+    chunks = [content[offset : offset + 64 * 1024] for offset in range(0, len(content), 64 * 1024)]
+
+    staged = stage_upload([part("dashboard.html", chunks)])
+
+    try:
+        assert staged.files[0].byte_size == len(content)
+        assert b"".join(staged.files[0].iter_chunks()) == content
+    finally:
+        staged.close()
+
+
 @pytest.mark.parametrize(
     "reference",
     [

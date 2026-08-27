@@ -89,3 +89,16 @@ tests for header spoofing and proxy bypass before it is enabled.
 
 Browser authentication requires TLS. Local HTTP remains suitable only for non-authenticated
 foundation checks; production configuration already requires HTTPS origins.
+
+### Sandboxed local-browser compatibility
+
+Some embedded Chromium surfaces load a local page in an opaque sandbox and therefore send the
+literal `Origin: null` on form submissions. Django rejects that origin by default, even when the
+CSRF cookie and form token are valid. `scripts/run_https.py` opts into a narrowly bounded adapter
+for this local workflow: it normalizes that origin only for unsafe HTTPS requests sent to the
+exact configured loopback portal host by a loopback client. Django's CSRF middleware still
+requires and validates the cookie/token pair.
+
+The adapter is disabled by default, cannot activate outside the `development` environment, and
+does not accept non-loopback clients, HTTP requests, alternate hosts, or missing/invalid CSRF
+tokens. Production retains Django's normal strict origin checks.

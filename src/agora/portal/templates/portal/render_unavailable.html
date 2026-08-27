@@ -1,0 +1,8 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Dashboard temporarily unavailable | Agora{% endblock %}
+
+{% block content %}
+  {% url "project-list" as projects_url %}
+  {% include "portal/components/error-state.html" with heading_id="render-unavailable" title="Dashboard temporarily unavailable" message="Agora could not start a safe isolated viewing session. No project data was changed; return to Projects and try again." action_url=projects_url action_label="Back to projects" %}
+{% endblock %}

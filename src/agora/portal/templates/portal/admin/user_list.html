@@ -1,6 +1,7 @@
 {% extends "portal/base.html" %}
 
 {% block title %}Users | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
 
 {% block content %}
   {% url "admin-user-create" as create_user_url %}

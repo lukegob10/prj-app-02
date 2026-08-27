@@ -21,6 +21,15 @@ def portal_shell(request: HttpRequest) -> dict[str, Any]:
         }
     ]
 
+    if getattr(user, "is_authenticated", False):
+        nav_items.append(
+            {
+                "label": "Projects",
+                "url": reverse("project-list"),
+                "current": bool(route_name and route_name.startswith("project-")),
+            }
+        )
+
     if getattr(user, "is_authenticated", False) and getattr(user, "is_administrator", False):
         nav_items.append(
             {

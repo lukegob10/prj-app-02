@@ -25,6 +25,11 @@ There are no embedded runtime defaults for required values. `.env.example` conta
 placeholders, not credentials. `.env`, `.local/`, databases, build artifacts, and uploaded
 content are ignored by Git.
 
+The development-only `scripts/run_local.py` launchers override the two browser origins in their
+own processes to `https://localhost:8443` and `https://127.0.0.1:8444`. They do not rewrite
+`.env`. Render authorizations use a reviewed five-minute application constant; changing that
+window is a security-contract change, not an unchecked environment toggle.
+
 ## Safe local bootstrap
 
 After installing locked dependencies, create `.env` once:

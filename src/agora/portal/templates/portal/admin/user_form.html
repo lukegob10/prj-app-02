@@ -1,11 +1,12 @@
 {% extends "portal/base.html" %}
 
 {% block title %}Create user | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
 
 {% block content %}
   {% include "portal/components/page-header.html" with eyebrow="Administration" title="Create user" intro="Provision a local SOEID account. The password is stored as a one-way hash and is never displayed again." %}
 
-  <section class="portal-section" aria-label="Create user form">
+  <section class="portal-section portal-section--compact" aria-label="Create user form">
     <form class="portal-card portal-form-stack" method="post" novalidate>
       {% csrf_token %}
       {% if form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>{% endif %}

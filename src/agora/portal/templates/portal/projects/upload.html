@@ -1,0 +1,34 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Upload revision | {{ project.name }} | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow="Immutable revision" title="Upload dashboard files" intro="Upload exactly one self-contained HTML dashboard with any CSV files it references. Successful revisions cannot be changed." %}
+  <section class="portal-section portal-section--compact" aria-label="Upload revision form">
+    <div class="portal-boundary-note">
+      <div class="portal-boundary-note__heading"><span class="portal-boundary-note__marker" aria-hidden="true">i</span><div><p class="portal-eyebrow">Project</p><h2>{{ project.name }}</h2></div></div>
+      <p>Each file may be up to 25 MB; the combined upload may be up to 100 MB. Embed JavaScript and CSS directly in the HTML, and present external source URLs as plain text. External scripts, styles, images, fonts, links, frames, and network dependencies are rejected.</p>
+    </div>
+    <form class="portal-card portal-form-stack portal-upload-form" method="post" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="portal-alert portal-alert--error" role="alert"><span class="portal-alert__marker" aria-hidden="true">!</span><div><h2>Upload not accepted</h2>{{ form.non_field_errors }}</div></div>{% endif %}
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.html_file.id_for_label }}">{{ form.html_file.label }}</label>
+        <p class="portal-form-field__help">{{ form.html_file.help_text }}</p>
+        {{ form.html_file }}
+        {% if form.html_file.errors %}<div class="portal-form-field__error" role="alert">{{ form.html_file.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.csv_files.id_for_label }}">{{ form.csv_files.label }}</label>
+        <p class="portal-form-field__help">{{ form.csv_files.help_text }}</p>
+        {{ form.csv_files }}
+        {% if form.csv_files.errors %}<div class="portal-form-field__error" role="alert">{{ form.csv_files.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-action-group">
+        <a class="portal-button portal-button--quiet" href="{% url 'project-detail' project.id %}">Cancel</a>
+        <button class="portal-button portal-button--primary" type="submit">Upload revision</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

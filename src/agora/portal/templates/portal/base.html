@@ -7,6 +7,9 @@
     <meta name="robots" content="noindex, nofollow">
     <meta name="description" content="{{ meta_description|default:'Agora secure dashboard publishing portal' }}">
     <title>{% block title %}Agora{% endblock %}</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="{% static 'portal/brand/favicon-32.png' %}">
+    <link rel="icon" type="image/png" sizes="192x192" href="{% static 'portal/brand/favicon-192.png' %}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{% static 'portal/brand/apple-touch-icon.png' %}">
     <link rel="stylesheet" href="{% static 'portal/foundation.css' %}">
     {% block head_extra %}{% endblock %}
   </head>

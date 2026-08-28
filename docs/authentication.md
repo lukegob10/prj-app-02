@@ -27,7 +27,7 @@ uv run python manage.py bootstrap_admin --soeid ASSIGNED_SOEID
 
 The command prompts for the password and confirmation without echoing them. It accepts no
 password argument, refuses to run once any `User` row exists (including disabled users), and
-serializes concurrent attempts with a PostgreSQL transaction advisory lock. The success message
+serializes concurrent attempts with an Oracle exclusive lock on the user table. The success message
 does not repeat the SOEID or password. If bootstrap is no longer available, use an approved,
 separately reviewed break-glass procedure; do not add a web bootstrap route.
 

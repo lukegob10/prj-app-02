@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "treasury-analytics"
+version = "0.1.1"
+description = "Local stand-in for the environment-installed Treasury Analytics package"
+requires-python = ">=3.12"
+dependencies = [
+    "oracledb>=4.0,<5.0",
+]
+
+[tool.setuptools.package-data]
+treasury_analytics = ["py.typed"]
+
+[tool.setuptools.packages.find]
+include = ["treasury_analytics*"]

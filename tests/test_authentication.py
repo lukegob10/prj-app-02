@@ -857,8 +857,8 @@ def test_missing_target_and_non_admin_service_calls_fail_closed(
         reset_user_password(actor_id=admin.id, target_id=unknown, password=strong_password())
 
 
-def test_postgres_connection_is_the_expected_vendor() -> None:
-    assert connection.vendor == "postgresql"
+def test_oracle_connection_is_the_expected_vendor() -> None:
+    assert connection.vendor == "oracle"
 
 
 def test_identity_edge_paths_and_throttle_window_reset(

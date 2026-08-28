@@ -1,6 +1,6 @@
 # ADR 0001: Modular Django foundation
 
-- Status: Accepted
+- Status: Superseded in part by ADR 0002
 - Date: 2026-08-26
 - Decision scope: AG-001 only
 
@@ -53,3 +53,6 @@ Python 3.14.7 and constrain supported runtime to current 3.14 patch releases.
   scope.
 
 Production hosting, ECS topology, SSO, HA, and storage-vendor selection are not decided here.
+
+ADR 0002 replaces only this decision's PostgreSQL/Psycopg portions. The Django, Python, ASGI,
+browser-boundary, and tooling decisions remain accepted.

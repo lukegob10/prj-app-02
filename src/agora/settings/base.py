@@ -15,14 +15,18 @@ DEBUG = RUNTIME.debug
 
 DATABASES: dict[str, dict[str, object]] = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": RUNTIME.database.name,
-        "USER": RUNTIME.database.user,
-        "PASSWORD": RUNTIME.database.password,
-        "HOST": RUNTIME.database.host,
-        "PORT": RUNTIME.database.port,
-        "CONN_MAX_AGE": 0 if not RUNTIME.is_production else 60,
-        "OPTIONS": {"connect_timeout": 5},
+        "ENGINE": "agora.db.backends.treasury_oracle",
+        "NAME": RUNTIME.database.environment,
+        "USER": RUNTIME.database.environment,
+        "PASSWORD": "",
+        "HOST": "",
+        "PORT": "",
+        "CONN_MAX_AGE": 0,
+        "OPTIONS": {"environment": RUNTIME.database.environment},
+        "TEST": {
+            "CREATE_DB": False,
+            "CREATE_USER": False,
+        },
     }
 }
 

@@ -66,7 +66,7 @@ never treated as authority.
   explicit supported-browser matrix with their own hostname/TLS setup before claiming
   cross-engine acceptance.
 - The fixture server intentionally does not prove artifact authorization, CSV MIME handling,
-  render-token expiry/revocation, or publication behavior. PostgreSQL-backed integration tests now
+  render-token expiry/revocation, or publication behavior. Oracle-backed integration tests now
   prove those server decisions, but a production-route browser test remains before claiming the
   full multi-browser AG-007/AG-011 acceptance matrix.
 

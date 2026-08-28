@@ -19,7 +19,7 @@ must not emerge implicitly from implementation.
 | **Revision** | One atomically committed, immutable version of a Dashboard containing exactly one HTML Artifact and zero or more CSV Attachments. A failed or staged upload is not a Revision. A Revision is never edited or independently deleted in the MVP. |
 | **HTML Artifact** | The exact validated bytes of a Revision's sole HTML file. Self-contained means executable presentation dependencies are inline; only documented same-Revision CSV URLs may be runtime data dependencies. It is always hostile active content. |
 | **CSV Attachment** | An immutable, validated whole-file artifact belonging to one Revision. Its logical filename is unique after platform-independent normalization. A filename is never a storage path or authorization boundary. |
-| **Viewer Grant** | One unique Dashboard-to-User relationship, created or revoked by the owner using canonical SOEID. It grants read-only access to the Revision currently published for that Dashboard, including every attached CSV. It grants no draft, preview, management, or arbitrary-Revision access. Owner access is implicit and is not a self-grant. |
+| **Viewer Grant** | One retained Dashboard-to-User grant epoch, created and revoked by the owner using canonical SOEID. At most one epoch for a `(Dashboard, User)` pair is unrevoked at a time; revocation closes that row permanently and a later regrant creates a new retained epoch. An active epoch grants read-only access to the Revision currently published for that Dashboard, including every attached CSV. It grants no draft, preview, management, or arbitrary-Revision access. Owner access is implicit and is not a self-grant. |
 | **Draft** | Dashboard state for a Dashboard that has never been published. The published pointer is null. It can have zero or more complete Revisions and Grants; Viewers see nothing. |
 | **Published** | Dashboard state in which the published pointer references one complete Revision owned by the same Dashboard. Later uploads do not move this pointer. Zero Grants is valid and leaves the publication owner-only. |
 | **Unpublished** | Dashboard state for a previously Published Dashboard that was deliberately withdrawn. The published pointer is null; Revisions and Grants remain. Viewers have no access. |
@@ -71,8 +71,11 @@ There is no row-, column-, file-, or purpose-level filtering. Filenames provide 
 - A Grant alone exposes no Draft, Unpublished, Archived, or arbitrary Revision.
 - Each HTML and CSV request still requires server-side authorization or narrowly scoped render
   authorization; opaque identifiers are not access control.
-- Revoke, disable, unpublish, archive, delete, or republish ends subsequent authorization
-  within the documented render-authorization window. Already received bytes cannot be recalled.
+- Revoke, disable, unpublish, archive, delete, or republish ends authorization at the next
+  server-side HTML or CSV check. Already received bytes cannot be recalled.
+- Render credentials are bound to the exact Dashboard, User, Revision, and grant epoch. A
+  credential issued for a revoked epoch never revives when that SOEID is granted a new epoch;
+  the viewer must receive a newly issued credential for the new epoch.
 - Owner and Viewer UX must clearly explain complete-CSV visibility and user-created content.
 
 ## Role expectations

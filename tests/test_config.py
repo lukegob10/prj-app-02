@@ -20,11 +20,8 @@ def valid_environment(tmp_path: Path) -> dict[str, str]:
         "AGORA_CONTENT_SECRET_KEY": "c" * 64,
         "AGORA_PORTAL_ORIGIN": "http://portal.agora.test:8000",
         "AGORA_CONTENT_ORIGIN": "http://content.agorausercontent.test:8001",
-        "AGORA_DB_NAME": "agora_renderer",
-        "AGORA_DB_USER": "agora",
-        "AGORA_DB_PASSWORD": "not-a-real-password",
-        "AGORA_DB_HOST": "127.0.0.1",
-        "AGORA_DB_PORT": "5432",
+        "ENV": "prod",
+        "TA_PROD_PASSWORD": "not-a-real-password",
         "AGORA_ARTIFACT_ROOT": str(tmp_path / "artifacts"),
     }
 
@@ -49,7 +46,8 @@ def test_configuration_accepts_explicit_safe_values(tmp_path: Path) -> None:
     assert config.debug is False
     assert config.portal_origin.hostname == "portal.agora.test"
     assert config.content_origin.hostname == "content.agorausercontent.test"
-    assert config.database.port == 5432
+    assert config.database.environment == "PROD"
+    assert config.database.password_variable == "TA_PROD_PASSWORD"
     assert config.artifact_root.is_absolute()
     assert load_service_secret(environ, "portal") == "p" * 64
     assert load_service_secret(environ, "content") == "c" * 64
@@ -65,22 +63,29 @@ def test_configuration_reports_every_missing_required_name() -> None:
         "AGORA_DEBUG",
         "AGORA_PORTAL_ORIGIN",
         "AGORA_CONTENT_ORIGIN",
-        "AGORA_DB_NAME",
-        "AGORA_DB_USER",
-        "AGORA_DB_PASSWORD",
-        "AGORA_DB_HOST",
-        "AGORA_DB_PORT",
+        "ENV",
         "AGORA_ARTIFACT_ROOT",
     ):
         assert name in message
+
+
+def test_configuration_requires_the_selected_profile_password(tmp_path: Path) -> None:
+    environ = valid_environment(tmp_path)
+    environ["ENV"] = "SDLC"
+
+    with pytest.raises(ImproperlyConfigured, match="TA_SDLC_PASSWORD"):
+        RuntimeConfig.from_environ(environ)
+
+    environ["TA_SDLC_PASSWORD"] = "managed-secret"
+    assert RuntimeConfig.from_environ(environ).database.password_variable == "TA_SDLC_PASSWORD"
 
 
 @pytest.mark.parametrize(
     ("name", "value", "expected"),
     [
         ("AGORA_DEBUG", "sometimes", "must be true or false"),
-        ("AGORA_DB_PORT", "zero", "must be an integer"),
-        ("AGORA_DB_PORT", "70000", "must be an integer"),
+        ("ENV", "9prod", "must begin with a letter"),
+        ("ENV", "prod profile", "must begin with a letter"),
         ("AGORA_ARTIFACT_ROOT", "relative/path", "must be an absolute path"),
     ],
 )
@@ -195,8 +200,8 @@ def test_error_never_echoes_secret_values(tmp_path: Path) -> None:
     environ = valid_environment(tmp_path)
     portal_secret = environ["AGORA_PORTAL_SECRET_KEY"]
     content_secret = environ["AGORA_CONTENT_SECRET_KEY"]
-    password = environ["AGORA_DB_PASSWORD"]
-    environ["AGORA_DB_PORT"] = "invalid"
+    password = environ["TA_PROD_PASSWORD"]
+    environ["ENV"] = "invalid profile"
 
     with pytest.raises(ImproperlyConfigured) as raised:
         RuntimeConfig.from_environ(environ)

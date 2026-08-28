@@ -17,12 +17,12 @@ from django.utils.crypto import salted_hmac
 
 from agora.persistence.models import AuditEvent, LoginThrottle, User
 from agora.persistence.names import InvalidSoeid, canonicalize_soeid
+from agora.persistence.querying import get_one_or_none
 
 MAX_PASSWORD_LENGTH: Final = 256
 AUTH_FAILURE_LIMIT: Final = 5
 AUTH_FAILURE_WINDOW: Final = timedelta(minutes=15)
 AUTH_LOCKOUT_DURATION: Final = timedelta(minutes=1)
-_BOOTSTRAP_ADVISORY_LOCK_KEY: Final = 7_946_003
 
 
 class IdentityServiceError(RuntimeError):
@@ -149,7 +149,7 @@ def disable_user(*, actor_id: UUID, target_id: UUID) -> User:
         actor = next((user for user in active_administrators if user.id == actor_id), None)
         if actor is None:
             raise NotAdministrator
-        target = User.objects.select_for_update().filter(id=target_id).first()
+        target = get_one_or_none(User.objects.select_for_update().filter(id=target_id))
         if target is None:
             raise UserNotFound
         if target.id == actor.id:
@@ -169,7 +169,7 @@ def enable_user(*, actor_id: UUID, target_id: UUID) -> User:
     """Re-enable one retained account without changing its password."""
     with transaction.atomic(durable=True):
         actor = _require_administrator(actor_id)
-        target = User.objects.select_for_update().filter(id=target_id).first()
+        target = get_one_or_none(User.objects.select_for_update().filter(id=target_id))
         if target is None:
             raise UserNotFound
         if target.is_active:
@@ -185,7 +185,7 @@ def reset_user_password(*, actor_id: UUID, target_id: UUID, password: str) -> Us
     """Replace a target password and invalidate every previous session."""
     with transaction.atomic(durable=True):
         actor = _require_administrator(actor_id)
-        target = User.objects.select_for_update().filter(id=target_id).first()
+        target = get_one_or_none(User.objects.select_for_update().filter(id=target_id))
         if target is None:
             raise UserNotFound
         _set_validated_password(target, password)
@@ -218,7 +218,7 @@ def _set_validated_password(user: User, password: str) -> None:
 
 
 def _require_administrator(actor_id: UUID) -> User:
-    actor = User.objects.select_for_update().filter(id=actor_id).first()
+    actor = get_one_or_none(User.objects.select_for_update().filter(id=actor_id))
     if actor is None or not actor.is_active or not actor.is_administrator:
         raise NotAdministrator
     return actor
@@ -236,8 +236,9 @@ def _record_audit_event(
 
 
 def _acquire_bootstrap_lock() -> None:
+    table = connection.ops.quote_name(User._meta.db_table)
     with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [_BOOTSTRAP_ADVISORY_LOCK_KEY])
+        cursor.execute(f"LOCK TABLE {table} IN EXCLUSIVE MODE")
 
 
 def _remote_address(request: HttpRequest) -> str:

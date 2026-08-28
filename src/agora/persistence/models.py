@@ -1,4 +1,4 @@
-"""PostgreSQL-backed Agora metadata models."""
+"""Oracle-backed Agora metadata models."""
 
 from __future__ import annotations
 
@@ -61,6 +61,7 @@ class User(AbstractBaseUser):
     objects = UserManager()
 
     class Meta:
+        db_table = "TB_TA_AGORA_USER"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(soeid__regex=r"^[A-Z0-9][A-Z0-9._-]{0,63}$"),
@@ -122,6 +123,7 @@ class LoginThrottle(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "TB_TA_AGORA_LOGIN_THROTTLE"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(bucket_hash__regex=r"^[0-9a-f]{64}$"),
@@ -174,6 +176,7 @@ class Dashboard(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "TB_TA_AGORA_DASHBOARD"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(
@@ -313,6 +316,7 @@ class Revision(models.Model):
     artifacts_locked = models.BooleanField(default=False, editable=False)
 
     class Meta:
+        db_table = "TB_TA_AGORA_REVISION"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(number__gt=0),
@@ -374,6 +378,7 @@ class Artifact(models.Model):
     sha256 = models.CharField(max_length=64)
 
     class Meta:
+        db_table = "TB_TA_AGORA_ARTIFACT"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(kind__in=["html", "csv"]),
@@ -405,11 +410,6 @@ class Artifact(models.Model):
             models.UniqueConstraint(
                 fields=("revision", "name_key"),
                 name="agora_artifact_revision_name_unique",
-            ),
-            models.UniqueConstraint(
-                fields=("revision",),
-                condition=models.Q(kind="html"),
-                name="agora_artifact_one_html_per_revision",
             ),
         ]
         indexes: ClassVar[list[models.Index]] = [
@@ -444,7 +444,13 @@ class Artifact(models.Model):
 
 
 class ViewerGrant(models.Model):
-    """One retained, unique dashboard-to-viewer relationship."""
+    """One retained, immutable dashboard-to-viewer grant epoch.
+
+    A dashboard/viewer pair may have many retained epochs over its lifetime, but
+    at most one epoch can be active.  The active-only invariant is installed by
+    the Oracle-native migration because Django's conditional unique constraints
+    do not express the function-based index used by this project.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     dashboard = models.ForeignKey(Dashboard, on_delete=models.PROTECT, related_name="viewer_grants")
@@ -461,11 +467,8 @@ class ViewerGrant(models.Model):
     )
 
     class Meta:
+        db_table = "TB_TA_AGORA_VIEWER_GRANT"
         constraints: ClassVar[list[models.BaseConstraint]] = [
-            models.UniqueConstraint(
-                fields=("dashboard", "viewer"),
-                name="agora_grant_dashboard_viewer_unique",
-            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(revoked_at__isnull=True, revoked_by__isnull=True)
@@ -481,6 +484,10 @@ class ViewerGrant(models.Model):
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=("viewer", "revoked_at"), name="agora_grant_viewer_active_idx"),
             models.Index(fields=("dashboard", "revoked_at"), name="agora_grant_dash_active_idx"),
+            models.Index(
+                fields=("dashboard", "viewer", "revoked_at"),
+                name="agora_grant_scope_active_idx",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -492,13 +499,9 @@ class ViewerGrant(models.Model):
             immutable = ("id", "dashboard_id", "viewer_id", "created_by_id", "created_at")
             if any(getattr(original, field) != getattr(self, field) for field in immutable):
                 raise ImmutableRecordError("grant relationship fields are immutable")
-            if (
-                original.revoked_at is not None
-                and self.revoked_at is not None
-                and (
-                    original.revoked_at != self.revoked_at
-                    or original.revoked_by_id != self.revoked_by_id
-                )
+            if original.revoked_at is not None and (
+                original.revoked_at != self.revoked_at
+                or original.revoked_by_id != self.revoked_by_id
             ):
                 raise ImmutableRecordError("a recorded grant revocation is immutable")
         self.full_clean()
@@ -513,6 +516,10 @@ class ViewerGrant(models.Model):
             raise ValidationError({"viewer": "dashboard owners cannot grant themselves access"})
         if self.created_by_id != self.dashboard.owner_id:
             raise ValidationError({"created_by": "only the dashboard owner can create a grant"})
+        if (self.revoked_at is None) != (self.revoked_by_id is None):
+            raise ValidationError(
+                "revoked_at and revoked_by must either both be set or both be empty"
+            )
         if self.revoked_by_id is not None and self.revoked_by_id != self.dashboard.owner_id:
             raise ValidationError({"revoked_by": "only the dashboard owner can revoke a grant"})
 
@@ -543,11 +550,19 @@ class RenderAuthorization(models.Model):
         on_delete=models.PROTECT,
         related_name="render_authorizations",
     )
+    viewer_grant = models.ForeignKey(
+        ViewerGrant,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="render_authorizations",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     revoked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        db_table = "TB_TA_AGORA_RENDER_AUTHORIZATION"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(token_digest__regex=SHA256_PATTERN),
@@ -584,6 +599,7 @@ class RenderAuthorization(models.Model):
                 "viewer_auth_version",
                 "dashboard_id",
                 "revision_id",
+                "viewer_grant_id",
                 "created_at",
                 "expires_at",
             )
@@ -602,6 +618,34 @@ class RenderAuthorization(models.Model):
         if self.revision_id is not None and self.dashboard_id is not None:
             if self.revision.dashboard_id != self.dashboard_id:
                 raise ValidationError({"revision": "revision must belong to the dashboard"})
+        if self.viewer_grant_id is not None:
+            if self.audience != self.Audience.VIEWER:
+                raise ValidationError(
+                    {"viewer_grant": "grant-bound authorizations must target viewers"}
+                )
+            grant = self.viewer_grant
+            if grant is None:
+                raise ValidationError({"viewer_grant": "authorization grant does not exist"})
+            if grant.dashboard_id != self.dashboard_id:
+                raise ValidationError(
+                    {"viewer_grant": "grant must belong to the authorization dashboard"}
+                )
+            if grant.viewer_id != self.viewer_id:
+                raise ValidationError(
+                    {"viewer_grant": "grant must belong to the authorization viewer"}
+                )
+            if self._state.adding and grant.revoked_at is not None:
+                raise ValidationError({"viewer_grant": "authorization grant must be active"})
+        elif (
+            self._state.adding
+            and self.audience == self.Audience.VIEWER
+            and self.viewer_id is not None
+            and self.dashboard_id is not None
+            and self.viewer_id != self.dashboard.owner_id
+        ):
+            raise ValidationError(
+                {"viewer_grant": "non-owner viewer authorizations must bind a grant epoch"}
+            )
         if (
             self._state.adding
             and self.viewer_id is not None
@@ -634,6 +678,7 @@ class AuditEvent(models.Model):
     metadata = models.JSONField(blank=True, default=dict)
 
     class Meta:
+        db_table = "TB_TA_AGORA_AUDIT_EVENT"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(event_type__regex=r"^[a-z][a-z0-9_.-]{2,63}$"),
@@ -690,6 +735,7 @@ class StorageReservation(models.Model):
     cleanup_required = models.BooleanField(default=False)
 
     class Meta:
+        db_table = "TB_TA_AGORA_STORAGE_RESERVATION"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(storage_key__regex=STORAGE_KEY_PATTERN),

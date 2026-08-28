@@ -1,225 +1,265 @@
+"""Harden Oracle lifecycle, authorization, and canonical-name boundaries."""
+
 from django.db import migrations, models
 
 FORWARD_SQL = (
     """
-    ALTER TABLE persistence_artifact
-    ADD CONSTRAINT agora_artifact_logical_name_nfc
-    CHECK (logical_name = normalize(logical_name, NFC))
-    """,
-    """
-    ALTER TABLE persistence_artifact
-    ADD CONSTRAINT agora_artifact_name_key_canonical
-    CHECK (
-        name_key = normalize(
-            casefold(normalize(logical_name, NFKC) COLLATE "und-x-icu"),
-            NFKC
-        )
-    )
-    """,
-    """
-    CREATE FUNCTION agora_guard_reservation_mutation() RETURNS trigger
-    LANGUAGE plpgsql AS $$
+    CREATE OR REPLACE TRIGGER agora_artifact_insert_guard
+    BEFORE INSERT ON persistence_artifact
+    FOR EACH ROW
+    DECLARE
+        parent_locked NUMBER(1);
     BEGIN
-        IF ROW(OLD.id, OLD.storage_key, OLD.created_at, OLD.expires_at)
-               IS DISTINCT FROM
-           ROW(NEW.id, NEW.storage_key, NEW.created_at, NEW.expires_at) THEN
-            RAISE EXCEPTION 'storage reservation identity is immutable'
-                USING ERRCODE = '55000';
+        IF :NEW.logical_name <> COMPOSE(:NEW.logical_name)
+           OR :NEW.name_key <> COMPOSE(:NEW.name_key)
+           OR :NEW.name_key <> NLS_LOWER(:NEW.name_key) THEN
+            raise_application_error(-20004, 'artifact names must be canonical');
         END IF;
-        IF OLD.verified_size IS NOT NULL
-           AND ROW(OLD.verified_size, OLD.verified_sha256)
-               IS DISTINCT FROM ROW(NEW.verified_size, NEW.verified_sha256) THEN
-            RAISE EXCEPTION 'storage verification receipt is immutable'
-                USING ERRCODE = '55000';
+        SELECT artifacts_locked
+        INTO parent_locked
+        FROM persistence_revision
+        WHERE id = :NEW.revision_id;
+        IF parent_locked <> 0 THEN
+            raise_application_error(-20004, 'artifacts cannot be added to a complete revision');
         END IF;
-        IF OLD.cleanup_required = TRUE AND NEW.cleanup_required = FALSE THEN
-            RAISE EXCEPTION 'storage cleanup requirement cannot be cleared'
-                USING ERRCODE = '55000';
-        END IF;
-        RETURN NEW;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            raise_application_error(-20004, 'artifact revision does not exist');
     END;
-    $$
     """,
     """
-    CREATE TRIGGER agora_reservation_mutation_guard
+    CREATE OR REPLACE TRIGGER agora_reservation_mut_guard
     BEFORE UPDATE ON persistence_storagereservation
-    FOR EACH ROW EXECUTE FUNCTION agora_guard_reservation_mutation()
+    FOR EACH ROW
+    BEGIN
+        IF :NEW.id <> :OLD.id
+           OR :NEW.storage_key <> :OLD.storage_key
+           OR :NEW.created_at <> :OLD.created_at
+           OR :NEW.expires_at <> :OLD.expires_at THEN
+            raise_application_error(-20010, 'storage reservation identity is immutable');
+        END IF;
+        IF :OLD.verified_size IS NOT NULL
+           AND (
+               :NEW.verified_size IS NULL
+               OR :NEW.verified_size <> :OLD.verified_size
+               OR :NEW.verified_sha256 IS NULL
+               OR :NEW.verified_sha256 <> :OLD.verified_sha256
+           ) THEN
+            raise_application_error(-20010, 'storage verification receipt is immutable');
+        END IF;
+        IF :OLD.cleanup_required = 1 AND :NEW.cleanup_required = 0 THEN
+            raise_application_error(-20010, 'storage cleanup requirement cannot be cleared');
+        END IF;
+    END;
     """,
     """
-    CREATE OR REPLACE FUNCTION agora_guard_dashboard_identity() RETURNS trigger
-    LANGUAGE plpgsql AS $$
+    CREATE OR REPLACE TRIGGER agora_dashboard_guard
+    BEFORE INSERT OR UPDATE OR DELETE ON persistence_dashboard
+    FOR EACH ROW
+    DECLARE
+        description_changed BOOLEAN := FALSE;
     BEGIN
-        IF TG_OP = 'DELETE' THEN
-            RAISE EXCEPTION 'dashboards cannot be hard-deleted' USING ERRCODE = '55000';
+        IF DELETING THEN
+            raise_application_error(-20002, 'dashboards cannot be hard-deleted');
         END IF;
-        IF NEW.id IS DISTINCT FROM OLD.id OR NEW.owner_id IS DISTINCT FROM OLD.owner_id THEN
-            RAISE EXCEPTION 'dashboard identity and ownership are immutable'
-                USING ERRCODE = '55000';
+        IF INSERTING THEN
+            IF :NEW.state <> 'draft'
+               OR :NEW.latest_revision_id IS NOT NULL
+               OR :NEW.published_revision_id IS NOT NULL
+               OR :NEW.first_published_at IS NOT NULL THEN
+                raise_application_error(-20002, 'new dashboards must begin as private drafts');
+            END IF;
+            RETURN;
         END IF;
-        IF OLD.state = 'deleted' THEN
-            RAISE EXCEPTION 'deleted dashboards are terminal tombstones'
-                USING ERRCODE = '55000';
+        IF :NEW.id <> :OLD.id OR :NEW.owner_id <> :OLD.owner_id THEN
+            raise_application_error(-20002, 'dashboard identity and ownership are immutable');
         END IF;
-        IF OLD.first_published_at IS NOT NULL
-           AND NEW.first_published_at IS DISTINCT FROM OLD.first_published_at THEN
-            RAISE EXCEPTION 'first publication time is immutable' USING ERRCODE = '55000';
+        IF :OLD.state = 'deleted' THEN
+            raise_application_error(-20002, 'deleted dashboards are terminal tombstones');
         END IF;
-        IF OLD.first_published_at IS NULL
-           AND NEW.first_published_at IS NOT NULL
-           AND NOT (OLD.state = 'draft' AND NEW.state = 'published') THEN
-            RAISE EXCEPTION 'publication history begins only with first publication'
-                USING ERRCODE = '55000';
+        IF :OLD.first_published_at IS NOT NULL
+           AND (
+               :NEW.first_published_at IS NULL
+               OR :NEW.first_published_at <> :OLD.first_published_at
+           ) THEN
+            raise_application_error(-20002, 'first publication time is immutable');
+        END IF;
+        IF :OLD.first_published_at IS NULL
+           AND :NEW.first_published_at IS NOT NULL
+           AND NOT (:OLD.state = 'draft' AND :NEW.state = 'published') THEN
+            raise_application_error(
+                -20002,
+                'publication history begins only with first publication'
+            );
         END IF;
         IF NOT (
-            (OLD.state = 'draft'
-             AND NEW.state IN ('draft', 'published', 'archived', 'deleted'))
-            OR (OLD.state = 'published'
-                AND NEW.state IN ('published', 'unpublished', 'archived', 'deleted'))
-            OR (OLD.state = 'unpublished'
-                AND NEW.state IN ('unpublished', 'published', 'archived', 'deleted'))
-            OR (OLD.state = 'archived' AND NEW.state = 'deleted')
-            OR (OLD.state = 'archived' AND OLD.first_published_at IS NULL
-                AND NEW.state = 'draft')
-            OR (OLD.state = 'archived' AND OLD.first_published_at IS NOT NULL
-                AND NEW.state = 'unpublished')
+            (:OLD.state = 'draft' AND :NEW.state IN ('draft', 'published', 'archived', 'deleted'))
+            OR (
+                :OLD.state = 'published'
+                AND :NEW.state IN ('published', 'unpublished', 'archived', 'deleted')
+            )
+            OR (
+                :OLD.state = 'unpublished'
+                AND :NEW.state IN ('unpublished', 'published', 'archived', 'deleted')
+            )
+            OR (:OLD.state = 'archived' AND :NEW.state = 'deleted')
+            OR (
+                :OLD.state = 'archived'
+                AND :OLD.first_published_at IS NULL
+                AND :NEW.state = 'draft'
+            )
+            OR (
+                :OLD.state = 'archived'
+                AND :OLD.first_published_at IS NOT NULL
+                AND :NEW.state = 'unpublished'
+            )
         ) THEN
-            RAISE EXCEPTION 'dashboard lifecycle transition is not allowed'
-                USING ERRCODE = '55000';
+            raise_application_error(-20002, 'dashboard lifecycle transition is not allowed');
         END IF;
-        IF OLD.state = 'archived'
-           AND ROW(OLD.name, OLD.description, OLD.latest_revision_id,
-                   OLD.published_revision_id, OLD.first_published_at, OLD.created_at)
-               IS DISTINCT FROM
-               ROW(NEW.name, NEW.description, NEW.latest_revision_id,
-                   NEW.published_revision_id, NEW.first_published_at, NEW.created_at) THEN
-            RAISE EXCEPTION 'archived dashboards are read-only' USING ERRCODE = '55000';
+        IF :OLD.description IS NULL AND :NEW.description IS NOT NULL THEN
+            description_changed := TRUE;
+        ELSIF :OLD.description IS NOT NULL AND :NEW.description IS NULL THEN
+            description_changed := TRUE;
+        ELSIF :OLD.description IS NOT NULL
+              AND DBMS_LOB.COMPARE(:OLD.description, :NEW.description) <> 0 THEN
+            description_changed := TRUE;
         END IF;
-        RETURN NEW;
+        IF :OLD.state = 'archived'
+           AND (
+               :NEW.name <> :OLD.name
+               OR description_changed
+               OR :NEW.latest_revision_id <> :OLD.latest_revision_id
+               OR (:NEW.latest_revision_id IS NULL AND :OLD.latest_revision_id IS NOT NULL)
+               OR (:NEW.latest_revision_id IS NOT NULL AND :OLD.latest_revision_id IS NULL)
+               OR :NEW.published_revision_id <> :OLD.published_revision_id
+               OR (:NEW.published_revision_id IS NULL AND :OLD.published_revision_id IS NOT NULL)
+               OR (:NEW.published_revision_id IS NOT NULL AND :OLD.published_revision_id IS NULL)
+               OR :NEW.first_published_at <> :OLD.first_published_at
+               OR (:NEW.first_published_at IS NULL AND :OLD.first_published_at IS NOT NULL)
+               OR (:NEW.first_published_at IS NOT NULL AND :OLD.first_published_at IS NULL)
+               OR :NEW.created_at <> :OLD.created_at
+           ) THEN
+            raise_application_error(-20002, 'archived dashboards are read-only');
+        END IF;
     END;
-    $$
     """,
     """
-    CREATE FUNCTION agora_guard_dashboard_creation() RETURNS trigger
-    LANGUAGE plpgsql AS $$
-    BEGIN
-        IF NEW.state <> 'draft'
-           OR NEW.latest_revision_id IS NOT NULL
-           OR NEW.published_revision_id IS NOT NULL
-           OR NEW.first_published_at IS NOT NULL THEN
-            RAISE EXCEPTION 'new dashboards must begin as private drafts'
-                USING ERRCODE = '23514';
-        END IF;
-        RETURN NEW;
-    END;
-    $$
-    """,
-    """
-    CREATE TRIGGER agora_dashboard_creation_guard
-    BEFORE INSERT ON persistence_dashboard
-    FOR EACH ROW EXECUTE FUNCTION agora_guard_dashboard_creation()
-    """,
-    """
-    CREATE FUNCTION agora_guard_revision_authorization() RETURNS trigger
-    LANGUAGE plpgsql AS $$
-    DECLARE
-        creator_active boolean;
-        dashboard_state text;
-    BEGIN
-        SELECT is_active INTO creator_active
-        FROM persistence_user
-        WHERE id = NEW.created_by_id
-        FOR SHARE;
-        SELECT state INTO dashboard_state
-        FROM persistence_dashboard
-        WHERE id = NEW.dashboard_id
-        FOR SHARE;
-        IF creator_active IS DISTINCT FROM TRUE THEN
-            RAISE EXCEPTION 'revision creator must be active' USING ERRCODE = '23514';
-        END IF;
-        IF dashboard_state IS NULL
-           OR dashboard_state NOT IN ('draft', 'published', 'unpublished') THEN
-            RAISE EXCEPTION 'dashboard state does not accept revisions'
-                USING ERRCODE = '23514';
-        END IF;
-        RETURN NEW;
-    END;
-    $$
-    """,
-    """
-    CREATE TRIGGER agora_revision_authorization_guard
+    CREATE OR REPLACE TRIGGER agora_revision_auth_guard
     BEFORE INSERT ON persistence_revision
-    FOR EACH ROW EXECUTE FUNCTION agora_guard_revision_authorization()
+    FOR EACH ROW
+    DECLARE
+        creator_active NUMBER(1);
+        dashboard_state NVARCHAR2(16);
+    BEGIN
+        SELECT is_active
+        INTO creator_active
+        FROM persistence_user
+        WHERE id = :NEW.created_by_id;
+        SELECT state
+        INTO dashboard_state
+        FROM persistence_dashboard
+        WHERE id = :NEW.dashboard_id;
+        IF creator_active <> 1 THEN
+            raise_application_error(-20011, 'revision creator must be active');
+        END IF;
+        IF dashboard_state NOT IN ('draft', 'published', 'unpublished') THEN
+            raise_application_error(-20011, 'dashboard state does not accept revisions');
+        END IF;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            raise_application_error(-20011, 'revision authorization target is missing');
+    END;
     """,
     """
-    CREATE OR REPLACE FUNCTION agora_guard_grant_mutation() RETURNS trigger
-    LANGUAGE plpgsql AS $$
+    CREATE OR REPLACE TRIGGER agora_grant_immut_guard
+    BEFORE UPDATE OR DELETE ON persistence_viewergrant
+    FOR EACH ROW
     BEGIN
-        IF TG_OP = 'DELETE' THEN
-            RAISE EXCEPTION 'viewer grants cannot be deleted' USING ERRCODE = '55000';
+        IF DELETING THEN
+            raise_application_error(-20006, 'viewer grants cannot be deleted');
         END IF;
-        IF ROW(OLD.id, OLD.dashboard_id, OLD.viewer_id, OLD.created_by_id, OLD.created_at)
-               IS DISTINCT FROM
-               ROW(NEW.id, NEW.dashboard_id, NEW.viewer_id, NEW.created_by_id, NEW.created_at) THEN
-            RAISE EXCEPTION 'viewer grant relationship is immutable' USING ERRCODE = '55000';
+        IF :NEW.id <> :OLD.id
+           OR :NEW.dashboard_id <> :OLD.dashboard_id
+           OR :NEW.viewer_id <> :OLD.viewer_id
+           OR :NEW.created_by_id <> :OLD.created_by_id
+           OR :NEW.created_at <> :OLD.created_at THEN
+            raise_application_error(-20006, 'viewer grant relationship is immutable');
         END IF;
-        IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS NOT NULL
-           AND ROW(OLD.revoked_at, OLD.revoked_by_id)
-               IS DISTINCT FROM ROW(NEW.revoked_at, NEW.revoked_by_id) THEN
-            RAISE EXCEPTION 'a recorded viewer grant revocation is immutable'
-                USING ERRCODE = '55000';
+        IF :OLD.revoked_at IS NOT NULL
+           AND :NEW.revoked_at IS NOT NULL
+           AND (
+               :NEW.revoked_at <> :OLD.revoked_at
+               OR :NEW.revoked_by_id <> :OLD.revoked_by_id
+               OR (:NEW.revoked_by_id IS NULL AND :OLD.revoked_by_id IS NOT NULL)
+               OR (:NEW.revoked_by_id IS NOT NULL AND :OLD.revoked_by_id IS NULL)
+           ) THEN
+            raise_application_error(-20006, 'viewer grant revocation is immutable');
         END IF;
-        RETURN NEW;
     END;
-    $$
     """,
 )
 
-
 REVERSE_SQL = (
+    "DROP TRIGGER agora_revision_auth_guard",
+    "DROP TRIGGER agora_reservation_mut_guard",
     """
-    CREATE OR REPLACE FUNCTION agora_guard_grant_mutation() RETURNS trigger
-    LANGUAGE plpgsql AS $$
+    CREATE OR REPLACE TRIGGER agora_artifact_insert_guard
+    BEFORE INSERT ON persistence_artifact
+    FOR EACH ROW
+    DECLARE
+        parent_locked NUMBER(1);
     BEGIN
-        IF TG_OP = 'DELETE' THEN
-            RAISE EXCEPTION 'viewer grants cannot be deleted' USING ERRCODE = '55000';
+        SELECT artifacts_locked
+        INTO parent_locked
+        FROM persistence_revision
+        WHERE id = :NEW.revision_id;
+        IF parent_locked <> 0 THEN
+            raise_application_error(-20004, 'artifacts cannot be added to a complete revision');
         END IF;
-        IF ROW(OLD.id, OLD.dashboard_id, OLD.viewer_id, OLD.created_by_id, OLD.created_at)
-               IS DISTINCT FROM
-               ROW(NEW.id, NEW.dashboard_id, NEW.viewer_id, NEW.created_by_id, NEW.created_at) THEN
-            RAISE EXCEPTION 'viewer grant relationship is immutable' USING ERRCODE = '55000';
-        END IF;
-        IF OLD.revoked_at IS NOT NULL
-           AND ROW(OLD.revoked_at, OLD.revoked_by_id)
-               IS DISTINCT FROM ROW(NEW.revoked_at, NEW.revoked_by_id) THEN
-            RAISE EXCEPTION 'viewer grant revocation is immutable' USING ERRCODE = '55000';
-        END IF;
-        RETURN NEW;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            raise_application_error(-20004, 'artifact revision does not exist');
     END;
-    $$
     """,
-    "DROP TRIGGER agora_revision_authorization_guard ON persistence_revision",
-    "DROP FUNCTION agora_guard_revision_authorization()",
-    "DROP TRIGGER agora_dashboard_creation_guard ON persistence_dashboard",
-    "DROP FUNCTION agora_guard_dashboard_creation()",
     """
-    CREATE OR REPLACE FUNCTION agora_guard_dashboard_identity() RETURNS trigger
-    LANGUAGE plpgsql AS $$
+    CREATE OR REPLACE TRIGGER agora_dashboard_guard
+    BEFORE UPDATE OR DELETE ON persistence_dashboard
+    FOR EACH ROW
     BEGIN
-        IF TG_OP = 'DELETE' THEN
-            RAISE EXCEPTION 'dashboards cannot be hard-deleted' USING ERRCODE = '55000';
+        IF DELETING THEN
+            raise_application_error(-20002, 'dashboards cannot be hard-deleted');
         END IF;
-        IF NEW.id IS DISTINCT FROM OLD.id OR NEW.owner_id IS DISTINCT FROM OLD.owner_id THEN
-            RAISE EXCEPTION 'dashboard identity and ownership are immutable'
-                USING ERRCODE = '55000';
+        IF :NEW.id <> :OLD.id OR :NEW.owner_id <> :OLD.owner_id THEN
+            raise_application_error(-20002, 'dashboard identity and ownership are immutable');
         END IF;
-        RETURN NEW;
     END;
-    $$
     """,
-    "DROP TRIGGER agora_reservation_mutation_guard ON persistence_storagereservation",
-    "DROP FUNCTION agora_guard_reservation_mutation()",
-    "ALTER TABLE persistence_artifact DROP CONSTRAINT agora_artifact_name_key_canonical",
-    "ALTER TABLE persistence_artifact DROP CONSTRAINT agora_artifact_logical_name_nfc",
+    """
+    CREATE OR REPLACE TRIGGER agora_grant_immut_guard
+    BEFORE UPDATE OR DELETE ON persistence_viewergrant
+    FOR EACH ROW
+    BEGIN
+        IF DELETING THEN
+            raise_application_error(-20006, 'viewer grants cannot be deleted');
+        END IF;
+        IF :NEW.id <> :OLD.id
+           OR :NEW.dashboard_id <> :OLD.dashboard_id
+           OR :NEW.viewer_id <> :OLD.viewer_id
+           OR :NEW.created_by_id <> :OLD.created_by_id
+           OR :NEW.created_at <> :OLD.created_at THEN
+            raise_application_error(-20006, 'viewer grant relationship is immutable');
+        END IF;
+        IF :OLD.revoked_at IS NOT NULL
+           AND (
+               :NEW.revoked_at IS NULL
+               OR :NEW.revoked_at <> :OLD.revoked_at
+               OR :NEW.revoked_by_id IS NULL
+               OR :NEW.revoked_by_id <> :OLD.revoked_by_id
+           ) THEN
+            raise_application_error(-20006, 'viewer grant revocation is immutable');
+        END IF;
+    END;
+    """,
 )
 
 

@@ -2,7 +2,7 @@
 
 Agora is one modular Django application with two least-privilege web entry points. It does not
 launch a process or container per Dashboard. Portal and content may share an application
-package, policy layer, PostgreSQL metadata database, and private storage adapter, but they do
+package, policy layer, Oracle metadata database, and private storage adapter, but they do
 not share browser trust, URL configuration, or middleware.
 
 ## Boundary diagram
@@ -21,7 +21,7 @@ flowchart LR
   end
 
   subgraph DataBoundary[Metadata data boundary]
-    DB[(PostgreSQL 18\nmetadata only)]
+    DB[(Oracle\nmetadata only)]
   end
 
   subgraph ContentBoundary[Content origin — read-only, no portal session]
@@ -53,7 +53,7 @@ returns uploaded bytes through the portal process.
 |---|---|---|---|
 | Portal | `https://localhost:8443` | `scripts/run_https.py` → `agora.settings.portal` | Trusted UI; host-only secure cookies. |
 | Content | `https://127.0.0.1:8444` | `scripts/run_content_https.py` → `agora.settings.content` | Untrusted/read-only; exact authorized routes plus catch-all 404. |
-| PostgreSQL | `127.0.0.1:5432` | Compose `postgres` service | Metadata boundary; not browser-accessible. |
+| Oracle | package-managed `PROD` profile | `treasury_analytics.TAConnection` through the custom Django backend | Metadata boundary; connection coordinates stay inside the package. |
 | Artifacts | absolute `AGORA_ARTIFACT_ROOT` | AG-002 private filesystem adapter | Opaque generated keys only; never a static/media root or raw URL. |
 
 Both URLs terminate on loopback but use different browser hostnames deliberately. Ports alone do
@@ -61,6 +61,12 @@ not isolate cookies, and SameSite is not an origin boundary. Local TLS terminate
 points using ignored development material. Production validation
 requires distinct HTTPS origins, and operations must place them on different registrable sites
 where firm DNS permits.
+
+All tables owned by this deployment use `TB_TA_AGORA_<CORE_TABLE>`. The prefix identifies the
+Agora project, while the suffix preserves the table's role: examples include
+`TB_TA_AGORA_USER`, `TB_TA_AGORA_DASHBOARD`, `TB_TA_AGORA_DJANGO_MIGRATIONS`, and
+`TB_TA_AGORA_AUTH_PERMISSION`. The `persistence` name remains an internal Django app label only;
+it does not appear in the physical Oracle namespace.
 
 ## Trust-boundary rules
 
@@ -99,6 +105,7 @@ non-null origins.
 
 ```text
 src/agora/config.py          typed shared startup contract
+src/agora/db/                Django Oracle adapter for treasury_analytics.TAConnection
 src/agora/settings/base.py   non-browser shared settings
 src/agora/settings/portal.py trusted portal composition
 src/agora/settings/content.py isolated content composition
@@ -107,13 +114,32 @@ src/agora/urls/content.py    exact authorized HTML/CSV routes plus catch-all 404
 src/agora/rendering/         render authorization, delivery, CSP, and sandbox policy
 src/agora/portal/            trusted project, upload, preview, identity, and admin UI
 src/agora/persistence/       constrained metadata, domain services, migrations, private storage
+packages/treasury-analytics/ local development implementation of the managed connection API
 ```
 
 Future domain code belongs behind a shared policy/service layer rather than in views. Portal
 and content may call the same policy functions, but content must not import portal views,
 session middleware, or templates.
 
-AG-002 coordinates PostgreSQL and the filesystem through durable `StorageReservation` rows.
+## Project access and scale boundary
+
+`Dashboard` is the authorization boundary. The owner has implicit management rights; every other
+capability comes from an explicit retained `ViewerGrant` scoped to `(dashboard_id, viewer_id)`.
+An unrevoked grant is sufficient only when its viewer is active and for the exact pinned Published
+Revision.
+Administrators do not receive implicit Dashboard content access. Grant and revoke mutations,
+portal metadata, Shared with Me, render-token issuance, and content HTML/CSV delivery all call
+the same default-deny project policy, with generic not-found behavior for unrelated projects.
+
+Grant rows are retained epochs: revocation closes an epoch and a later regrant creates a new row.
+The active-only uniqueness invariant allows at most one open epoch for a Dashboard/viewer pair
+without destroying audit history. Active-grant checks and viewer-to-project discovery are
+index-backed. Project detail uses a database count and bounded lazy querysets; it never prefetches
+all grant or revision history merely to display a count. The scale workload and release gates are
+recorded in [`docs/scaling.md`](scaling.md), and remain unverified until an Oracle-backed staging
+run.
+
+AG-002 coordinates Oracle and the filesystem through durable `StorageReservation` rows.
 Artifact bytes are streamed, fsynced, read-back verified, and installed without clobbering before
 a short outermost metadata transaction exposes a complete Revision. A known rollback deletes
 only bytes proven to belong to that attempt; compensation locks the reservation before resolving
@@ -123,7 +149,7 @@ an unwitnessed write outcome; the last is retained rather than guessed. The data
 are not presented as one impossible distributed transaction.
 
 Dashboard rows retain `first_published_at` so restore can deterministically distinguish never-
-published Drafts from previously Published Dashboards. Model guards and PostgreSQL triggers enforce
+published Drafts from previously Published Dashboards. Model guards and Oracle triggers enforce
 the lifecycle transition graph, terminal Deleted/read-only Archived behavior, active-owner
 Revision creation, same-Dashboard publication/latest pointers, and complete immutable Revision
 sets. Later tickets add the user-facing lifecycle and publication workflows; AG-002 provides their
@@ -135,12 +161,12 @@ durable boundary only.
 |---|---|---|
 | Language | CPython 3.14.7 | Exactly pinned for development/CI; application supports latest `3.14.x`, through `<3.15`. Python 3.14 is in bugfix support through 2030-10. |
 | Backend/UI | Django 5.2.17 LTS with server-rendered templates and committed CSS | `>=5.2.17,<5.3`, exact transitive resolution in `uv.lock`; security support through 2028-04. |
-| Metadata DB | PostgreSQL 18.6 + Psycopg 3.3 | PostgreSQL 18 major, current minor upgrades; no SQLite substitute. Major support ends 2030-11. |
+| Metadata DB | Oracle + `python-oracledb` 4 through `treasury_analytics.TAConnection` | The selected package profile owns coordinates; the process supplies `ENV` and `TA_<ENV>_PASSWORD`. No SQLite substitute. |
 | Migrations | Django ORM migrations | Schema changes require checked-in forward migrations and explicit reversal/rollback consideration. |
 | Dependencies | uv 0.12.6 universal lock | `uv.lock` is committed; CI uses `--locked` and `uv lock --check`. |
 | Static quality | Ruff 0.16, mypy 2 + django-stubs | Format, lint, and strict type checks are blocking. Runtime tests compensate for stub/framework version skew. |
-| Tests | pytest 9, pytest-django, pytest-cov | Branch coverage is blocking; PostgreSQL connection and both service boundaries have smoke coverage. |
-| CI | GitHub Actions | Read-only token, SHA-pinned actions, locked install, PostgreSQL service, full quality gate, bounded timeout. |
+| Tests | pytest 9, pytest-django, pytest-cov | Branch coverage is blocking; Oracle connection and both service boundaries have smoke coverage. |
+| CI | GitHub Actions | Read-only token, SHA-pinned actions, locked install, Oracle-capable self-hosted runner, full quality gate, bounded timeout. |
 
 No Node runtime, SPA framework, bundler, task queue, cache, object store, or microservice split is
 justified by AG-001. Browser test engines arrive with the renderer workflow rather than as idle
@@ -154,11 +180,11 @@ dependencies.
 - [Django supported versions](https://www.djangoproject.com/download/)
 - [Django database support](https://docs.djangoproject.com/en/5.2/ref/databases/)
 - [Django migrations](https://docs.djangoproject.com/en/5.2/topics/migrations/)
-- [PostgreSQL versioning policy](https://www.postgresql.org/support/versioning/)
+- [python-oracledb documentation](https://python-oracledb.readthedocs.io/)
 - [uv project locking](https://docs.astral.sh/uv/concepts/projects/sync/)
 - [GitHub Actions secure use](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions)
 - [RFC 6454 web origin model](https://www.rfc-editor.org/rfc/rfc6454)
 - [Django user-uploaded content guidance](https://docs.djangoproject.com/en/5.2/topics/security/#user-uploaded-content)
 
-ECS topology, production high availability, reverse-proxy SSO, and production packaging remain
-explicitly out of scope.
+The database portion of ADR 0001 is superseded by ADR 0002. ECS topology, production high
+availability, reverse-proxy SSO, and final production packaging remain explicitly out of scope.

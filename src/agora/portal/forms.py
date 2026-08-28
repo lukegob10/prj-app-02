@@ -1,4 +1,4 @@
-"""Explicit, server-rendered forms for the portal identity workflows."""
+"""Explicit, server-rendered forms for the trusted portal workflows."""
 
 from __future__ import annotations
 
@@ -52,6 +52,34 @@ class ProjectForm(forms.Form):
         help_text="Optional context about the dashboard, source, or reporting period.",
         widget=forms.Textarea(attrs={"class": "portal-textarea", "rows": 5}),
     )
+
+
+class GrantViewerForm(forms.Form):
+    """Accept one canonical SOEID for a project-scoped Viewer grant."""
+
+    soeid = forms.CharField(
+        label="Viewer SOEID",
+        max_length=64,
+        strip=False,
+        help_text=(
+            "Enter the canonical SOEID of an active account. Owners already have Full control."
+        ),
+        widget=forms.TextInput(
+            attrs={
+                "class": "portal-input",
+                "autocomplete": "off",
+                "autocapitalize": "characters",
+                "aria-describedby": "viewer-soeid-help",
+                "spellcheck": "false",
+            }
+        ),
+    )
+
+    def clean_soeid(self) -> str:
+        try:
+            return canonicalize_soeid(self.cleaned_data["soeid"])
+        except InvalidSoeid as error:
+            raise forms.ValidationError("Enter a valid canonical SOEID.") from error
 
 
 class RevisionUploadForm(forms.Form):

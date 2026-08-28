@@ -10,11 +10,14 @@ from uuid import UUID
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import Client, RequestFactory, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
+from agora.persistence.access import grant_project_viewer, revoke_project_viewer
 from agora.persistence.models import (
     AuditEvent,
     Dashboard,
@@ -117,8 +120,8 @@ def test_owner_preview_shell_issues_hashed_scoped_authorization(tmp_path: Path) 
     assert b'<body class="portal-page portal-page--render">' in response.content
     assert b'class="portal-render-shell__bar"' in response.content
     assert b'class="portal-brand__wordmark"' in response.content
-    assert b'/static/portal/brand/agora-wordmark-color.png' in response.content
-    assert b'portal-brand__mark' not in response.content
+    assert b"/static/portal/brand/agora-wordmark-color.png" in response.content
+    assert b"portal-brand__mark" not in response.content
     assert b'aria-label="Dashboard details"' in response.content
     assert b"Open project details" in response.content
     assert b"Manage" not in response.content
@@ -350,6 +353,132 @@ def test_published_tokens_require_current_revision_and_active_grant(tmp_path: Pa
         )
     with pytest.raises(RenderAuthorizationDenied):
         issue_published_view(dashboard_id=dashboard.id, viewer_id=owner.id)
+
+
+@pytest.mark.parametrize("access_change", ["revoke", "disable", "unpublish"])
+def test_viewer_html_and_csv_fail_on_the_next_check_after_access_changes(
+    tmp_path: Path,
+    access_change: str,
+) -> None:
+    owner = _user(f"BOUNDARY.{access_change}.OWNER")
+    viewer = _user(f"BOUNDARY.{access_change}.VIEWER")
+    dashboard, revision = _revision(owner, tmp_path / access_change)
+    _publish(dashboard, revision)
+    grant = ViewerGrant.objects.create(dashboard=dashboard, viewer=viewer, created_by=owner)
+    credential = issue_published_view(dashboard_id=dashboard.id, viewer_id=viewer.id)
+    client = Client()
+    middleware = ["agora.middleware.ContentSecurityHeadersMiddleware"]
+
+    with override_settings(
+        ROOT_URLCONF="agora.urls.content",
+        MIDDLEWARE=middleware,
+        AGORA_ARTIFACT_ROOT=tmp_path / access_change,
+        AGORA_PORTAL_ORIGIN=PORTAL_ORIGIN,
+    ):
+        initial_html = client.get(f"/render/viewer/{credential.token}/")
+        initial_csv = client.get(
+            f"/render/viewer/{credential.token}/data.csv",
+            HTTP_ORIGIN="null",
+        )
+        assert initial_html.status_code == 200
+        assert _body(initial_html) == VALID_HTML
+        assert initial_csv.status_code == 200
+        assert _body(initial_csv) == VALID_CSV
+
+        if access_change == "revoke":
+            assert revoke_project_viewer(
+                dashboard_id=dashboard.id,
+                actor_id=owner.id,
+                grant_id=grant.id,
+            )
+        elif access_change == "disable":
+            viewer.is_active = False
+            viewer.save(update_fields=("is_active",))
+        else:
+            dashboard.published_revision = None
+            dashboard.state = Dashboard.State.UNPUBLISHED
+            dashboard.save()
+
+        denied_html = client.get(f"/render/viewer/{credential.token}/")
+        denied_csv = client.get(
+            f"/render/viewer/{credential.token}/data.csv",
+            HTTP_ORIGIN="null",
+        )
+
+    assert denied_html.status_code == 404
+    assert denied_csv.status_code == 404
+
+
+def test_regrant_creates_new_access_without_reviving_old_render_credential(tmp_path: Path) -> None:
+    owner = _user("EPOCH.OWNER")
+    viewer = _user("EPOCH.VIEWER")
+    dashboard, revision = _revision(owner, tmp_path / "epoch")
+    _publish(dashboard, revision)
+    first_grant = grant_project_viewer(
+        dashboard_id=dashboard.id,
+        actor_id=owner.id,
+        target_soeid=viewer.soeid,
+    )
+    old_credential = issue_published_view(dashboard_id=dashboard.id, viewer_id=viewer.id)
+    old_authorization = RenderAuthorization.objects.get(
+        token_digest=hashlib.sha256(old_credential.token.encode("ascii")).hexdigest()
+    )
+    assert old_authorization.viewer_grant_id == first_grant.id
+
+    assert revoke_project_viewer(
+        dashboard_id=dashboard.id,
+        actor_id=owner.id,
+        grant_id=first_grant.id,
+    )
+    second_grant = grant_project_viewer(
+        dashboard_id=dashboard.id,
+        actor_id=owner.id,
+        target_soeid=viewer.soeid,
+    )
+    assert second_grant.id != first_grant.id
+
+    with pytest.raises(RenderAuthorizationDenied):
+        resolve_render_authorization(
+            old_credential.token,
+            audience=RenderAuthorization.Audience.VIEWER,
+        )
+
+    new_credential = issue_published_view(dashboard_id=dashboard.id, viewer_id=viewer.id)
+    new_authorization = RenderAuthorization.objects.get(
+        token_digest=hashlib.sha256(new_credential.token.encode("ascii")).hexdigest()
+    )
+    assert new_authorization.viewer_grant_id == second_grant.id
+    assert (
+        resolve_render_authorization(
+            new_credential.token,
+            audience=RenderAuthorization.Audience.VIEWER,
+        ).viewer.id
+        == viewer.id
+    )
+
+
+def test_render_token_issuance_does_not_lock_read_only_policy_rows(tmp_path: Path) -> None:
+    owner = _user("NOLOCK.OWNER")
+    viewer = _user("NOLOCK.VIEWER")
+    dashboard, revision = _revision(owner, tmp_path / "no-lock")
+    _publish(dashboard, revision)
+    ViewerGrant.objects.create(dashboard=dashboard, viewer=viewer, created_by=owner)
+
+    with CaptureQueriesContext(connection) as queries:
+        credential = issue_published_view(dashboard_id=dashboard.id, viewer_id=viewer.id)
+
+    locking_queries = [
+        query["sql"] for query in queries.captured_queries if "FOR UPDATE" in query["sql"].upper()
+    ]
+    assert locking_queries == []
+
+    with CaptureQueriesContext(connection) as resolver_queries:
+        resolved = resolve_render_authorization(
+            credential.token,
+            audience=RenderAuthorization.Audience.VIEWER,
+        )
+    assert resolved.viewer.id == viewer.id
+    assert len(resolver_queries) == 1
 
 
 def test_stable_shared_view_shell_and_generic_denials(tmp_path: Path) -> None:

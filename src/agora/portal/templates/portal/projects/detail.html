@@ -15,7 +15,12 @@
   <section class="portal-section" aria-labelledby="project-status-heading">
     <div class="portal-section__heading portal-section__heading--actions">
       <div><p class="portal-eyebrow">Overview</p><h2 id="project-status-heading">Project status</h2></div>
-      {% if is_owner and project.latest_revision %}<a class="portal-button portal-button--secondary" href="{% url 'project-preview' project.id project.latest_revision.id %}">Preview latest</a>{% endif %}
+      {% if is_owner %}
+        <div class="portal-action-group">
+          <a class="portal-button portal-button--secondary" href="{% url 'project-access' project.id %}">Manage access</a>
+          {% if project.latest_revision %}<a class="portal-button portal-button--secondary" href="{% url 'project-preview' project.id project.latest_revision.id %}">Preview latest</a>{% endif %}
+        </div>
+      {% endif %}
     </div>
     <dl class="portal-metric-grid">
       <div><dt>Status</dt><dd>{% include "portal/components/status-badge.html" with label=project.get_state_display tone="info" %}</dd></div>
@@ -49,6 +54,13 @@
             </tbody>
           </table>
         </div>
+        {% if revisions.has_other_pages %}
+          <nav class="portal-pagination" aria-label="Revision pages">
+            {% if revisions.has_previous %}<a class="portal-pagination__link" href="{% url 'project-detail' project.id %}?page={{ revisions.previous_page_number }}">Previous</a>{% endif %}
+            <span class="portal-pagination__status" aria-current="page">Page {{ revisions.number }} of {{ revisions.paginator.num_pages }}</span>
+            {% if revisions.has_next %}<a class="portal-pagination__link" href="{% url 'project-detail' project.id %}?page={{ revisions.next_page_number }}">Next</a>{% endif %}
+          </nav>
+        {% endif %}
       {% else %}
         {% url "project-upload" project.id as upload_url %}
         {% include "portal/components/empty-state.html" with heading_id="revision-empty" title="Upload the first revision" message="Choose one self-contained HTML dashboard and any CSV files it references." action_url=upload_url action_label="Upload revision" %}

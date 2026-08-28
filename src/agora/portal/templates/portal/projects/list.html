@@ -44,6 +44,13 @@
           </tbody>
         </table>
       </div>
+      {% if project_page.has_other_pages %}
+        <nav class="portal-pagination" aria-label="Project pages">
+          {% if project_page.has_previous %}<a class="portal-pagination__link" href="{% url 'project-list' %}?{% if active_scope == 'shared' %}scope=shared&amp;{% endif %}page={{ project_page.previous_page_number }}">Previous</a>{% endif %}
+          <span class="portal-pagination__status" aria-current="page">Page {{ project_page.number }} of {{ project_page.paginator.num_pages }}</span>
+          {% if project_page.has_next %}<a class="portal-pagination__link" href="{% url 'project-list' %}?{% if active_scope == 'shared' %}scope=shared&amp;{% endif %}page={{ project_page.next_page_number }}">Next</a>{% endif %}
+        </nav>
+      {% endif %}
     {% elif active_scope == "shared" %}
       {% include "portal/components/empty-state.html" with heading_id="shared-projects-empty" title="No shared projects" message="Only published projects with an active grant to your SOEID appear here." %}
     {% else %}

@@ -464,14 +464,6 @@ class Migration(migrations.Migration):
                 fields=("revision", "name_key"), name="agora_artifact_revision_name_unique"
             ),
         ),
-        migrations.AddConstraint(
-            model_name="artifact",
-            constraint=models.UniqueConstraint(
-                condition=models.Q(("kind", "html")),
-                fields=("revision",),
-                name="agora_artifact_one_html_per_revision",
-            ),
-        ),
         migrations.AddIndex(
             model_name="viewergrant",
             index=models.Index(

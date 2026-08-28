@@ -10,11 +10,14 @@ for the complete publishing, sharing, and operations roadmap.
 ## Foundation decisions
 
 - CPython 3.14.7, Django 5.2 LTS, and the Uvicorn ASGI server
-- PostgreSQL 18 with Django ORM migrations and Psycopg 3
+- Oracle through Django ORM migrations, `python-oracledb`, and the `treasury_analytics`
+  connection boundary
 - Server-rendered Django templates and committed CSS; no Node runtime or SPA framework
 - Separate portal and content Django entry points, hosts, middleware, and URL configurations
-- Constrained PostgreSQL metadata, immutable revision history, and private no-clobber filesystem
+- Constrained Oracle metadata, immutable revision history, and private no-clobber filesystem
   storage with durable cleanup reservations
+- One project namespace, `TB_TA_AGORA_*`, for every Agora-owned Oracle table, including the
+  Django framework tables used by this deployment
 - uv universal dependency lock, Ruff formatting/linting, mypy, pytest, and GitHub Actions CI
 
 The portal is trusted. Uploaded HTML is always hostile and must never be returned from a
@@ -33,7 +36,7 @@ Portal page structure and reusable component conventions are recorded in
 
 - [uv 0.12.6](https://docs.astral.sh/uv/getting-started/installation/) (uv installs the pinned
   Python runtime automatically)
-- Docker Engine with Compose for the local PostgreSQL service
+- Network access and credentials for the package-managed local Oracle `PROD` profile
 - Permission to trust a development-only localhost certificate for authenticated local use
 
 The legacy HTTP topology can optionally use these development-only mappings:
@@ -53,12 +56,15 @@ content host.
 uv sync --locked --all-groups
 uv run --locked python -m playwright install chromium
 uv run python scripts/bootstrap_env.py
-docker compose up -d postgres
 uv run python manage.py migrate
 uv run python manage.py bootstrap_admin --soeid ASSIGNED_SOEID
 ```
 
-The bootstrap command prompts for the password without echoing it; see
+`uv sync` installs the local `treasury_analytics` implementation inside Agora's `.venv`
+(`.venv/Lib/site-packages/treasury_analytics` on Windows). The environment bootstrap prompts
+for the local Oracle password without echoing it and writes `ENV=PROD` plus
+`TA_PROD_PASSWORD` to the ignored `.env`. The database package owns the username, host, port,
+and service name; Agora does not duplicate those values. See
 [local authentication and user administration](./docs/authentication.md). Browser authentication
 requires the TLS setup below, and production configuration rejects HTTP origins.
 
@@ -112,7 +118,7 @@ session, login, mutation, administration, or template middleware.
 
 ## Checks
 
-Start PostgreSQL, then run the same complete quality gate used by CI:
+With the configured Oracle profile reachable, run the complete quality gate:
 
 ```powershell
 uv run python scripts/check.py
@@ -141,7 +147,11 @@ The browser suite uses three loopback-resolved fixture origins and never serves 
 artifact routes or render credentials. Its proven guarantees and residual network/CPU risks are
 documented in [`docs/browser-security.md`](./docs/browser-security.md).
 
-The test suite deliberately connects to PostgreSQL; SQLite is not a supported substitute.
+The integration suite deliberately connects to Oracle; SQLite is not a supported substitute.
+Use only a non-production Oracle schema dedicated to Agora validation because migrations and tests
+write to the Agora-owned tables. Managed deployments set `ENV` (for example, `SDLC`) and inject
+the corresponding `TA_<ENV>_PASSWORD`, while installing the corporate implementation of the same
+`treasury_analytics.TAConnection` API.
 Configuration keys and safe local setup are documented in
 [docs/configuration.md](./docs/configuration.md).
 
@@ -157,7 +167,9 @@ The private filesystem contract, durability assumptions, and backup boundary are
 ## Scope
 
 The current vertical slice includes Home, My Projects, Shared with Me, Create Project, Project
-Detail, bounded HTML/CSV upload, and owner/published viewing through the isolated renderer. It
-does not yet include owner-facing grant management, publish/unpublish controls, archive/delete,
-object storage, ECS topology, reverse-proxy SSO, or production hosting. Those remain explicit
-backlog work rather than hidden behavior.
+Detail, owner-facing project access management by canonical SOEID, bounded HTML/CSV upload, and
+owner/published viewing through the isolated renderer. It does not yet include publish/unpublish
+controls, archive/delete, object storage, ECS topology, reverse-proxy SSO, or production hosting.
+Those remain explicit backlog work rather than hidden behavior. Production capacity for thousands
+of simultaneous users remains an unverified staging target; see [`docs/scaling.md`](docs/scaling.md)
+for the workload gates and current blockers.

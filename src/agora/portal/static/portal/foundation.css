@@ -1346,6 +1346,55 @@ a:hover {
   justify-content: space-between;
 }
 
+.portal-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--portal-space-3);
+  align-items: center;
+  justify-content: flex-end;
+  margin-block-start: var(--portal-space-4);
+}
+
+.portal-pagination__link,
+.portal-pagination__status {
+  min-height: 2.25rem;
+  padding: var(--portal-space-2) var(--portal-space-3);
+  border-radius: var(--portal-radius-sm);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.portal-pagination__link {
+  color: var(--portal-color-accent-strong);
+  background: var(--portal-color-surface);
+  border: 1px solid var(--portal-color-border-strong);
+  text-decoration: none;
+}
+
+.portal-pagination__link:hover {
+  color: var(--portal-color-accent-strong);
+  background: var(--portal-color-surface-accent);
+  border-color: var(--portal-color-accent);
+}
+
+.portal-pagination__status {
+  color: var(--portal-color-text-muted);
+  background: var(--portal-color-surface-subtle);
+  border: 1px solid var(--portal-color-border);
+}
+
+.portal-access-grant .portal-card {
+  max-width: var(--portal-reading-width);
+}
+
+.portal-access-summary .portal-definition-list {
+  margin-block-start: var(--portal-space-5);
+}
+
+.portal-access-summary .portal-definition-list strong {
+  color: var(--portal-color-text);
+}
+
 .portal-card-grid--three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -2073,6 +2122,8 @@ a:hover {
   .portal-page--workspace .portal-page-header,
   .portal-page--workspace .portal-section,
   .portal-page--workspace .portal-tabs,
+  .portal-pagination__link,
+  .portal-pagination__status,
   .portal-render-details__meta div,
   .portal-nav__menu,
   .portal-nav__toggle {
@@ -2105,6 +2156,8 @@ a:hover {
   .portal-boundary-note__marker,
   .portal-login-card__marker,
   .portal-state__marker,
+  .portal-pagination__link,
+  .portal-pagination__status,
   .portal-input,
   .portal-textarea,
   .portal-select {

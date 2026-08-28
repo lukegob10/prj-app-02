@@ -1,4 +1,4 @@
-"""Trusted portal views for local authentication and user administration."""
+"""Trusted portal views for projects, access management, and identity workflows."""
 
 from __future__ import annotations
 
@@ -11,10 +11,18 @@ from django.contrib import messages
 from django.contrib.auth import REDIRECT_FIELD_NAME, login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.files.uploadedfile import UploadedFile
+from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods, require_POST
 
+from agora.persistence.access import (
+    GrantRejection,
+    GrantViewerRejected,
+    ProjectAccessDenied,
+    grant_project_viewer,
+    revoke_project_viewer,
+)
 from agora.persistence.authentication import (
     DuplicateSoeid,
     LastAdministratorError,
@@ -35,6 +43,10 @@ from agora.persistence.projects import (
     create_project,
     manageable_project,
     owned_projects,
+    project_active_grants,
+    project_effective_viewer_count,
+    project_grant_history,
+    project_revisions,
     shared_projects,
     visible_project,
 )
@@ -53,6 +65,7 @@ from agora.uploads import UploadIssueCode, UploadPart, UploadRejected
 
 from .forms import (
     ConfirmActionForm,
+    GrantViewerForm,
     LoginForm,
     ProjectForm,
     ProvisionUserForm,
@@ -91,6 +104,20 @@ UPLOAD_MESSAGES = {
     ),
 }
 
+PROJECT_PAGE_SIZE = 25
+REVISION_PAGE_SIZE = 20
+GRANT_PAGE_SIZE = 25
+
+GRANT_REJECTION_MESSAGES = {
+    GrantRejection.INVALID_SOEID: "Enter a valid canonical SOEID.",
+    GrantRejection.UNKNOWN_USER: "No active user was found for that SOEID.",
+    GrantRejection.DISABLED_USER: "That account is disabled and cannot receive Viewer access.",
+    GrantRejection.SELF_GRANT: (
+        "You cannot grant yourself access; owners already have Full control."
+    ),
+    GrantRejection.ALREADY_GRANTED: "That SOEID already has Viewer access to this project.",
+}
+
 
 def home(request: HttpRequest) -> HttpResponse:
     """Render the public introduction or an authenticated project overview."""
@@ -123,16 +150,23 @@ def project_list(request: HttpRequest) -> HttpResponse:
     user = cast(User, request.user)
     scope = request.GET.get("scope")
     active_scope = "shared" if scope == "shared" else "mine"
-    mine = owned_projects(user.id)
-    shared = shared_projects(user.id)
+    mine_paginator = Paginator(owned_projects(user.id), PROJECT_PAGE_SIZE)
+    shared_paginator = Paginator(shared_projects(user.id), PROJECT_PAGE_SIZE)
+    page_number = request.GET.get("page")
+    project_page = (
+        shared_paginator.get_page(page_number)
+        if active_scope == "shared"
+        else mine_paginator.get_page(page_number)
+    )
     return render(
         request,
         "portal/projects/list.html",
         {
             "active_scope": active_scope,
-            "projects": list(shared if active_scope == "shared" else mine),
-            "mine_count": mine.count(),
-            "shared_count": shared.count(),
+            "projects": project_page,
+            "project_page": project_page,
+            "mine_count": mine_paginator.count,
+            "shared_count": shared_paginator.count,
         },
     )
 
@@ -160,12 +194,16 @@ def project_create(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def project_detail(request: HttpRequest, project_id: UUID) -> HttpResponse:
     """Show owner controls or the narrow published view granted to a viewer."""
-    resolved = visible_project(project_id, cast(User, request.user).id)
+    user = cast(User, request.user)
+    resolved = visible_project(project_id, user.id)
     if resolved is None:
         return render(request, "portal/not_found.html", status=404)
     project, is_owner = resolved
     revisions = (
-        sorted(project.revisions.all(), key=lambda revision: revision.number, reverse=True)
+        Paginator(
+            project_revisions(project.id, user.id).order_by("-number", "-created_at", "-id"),
+            REVISION_PAGE_SIZE,
+        ).get_page(request.GET.get("page"))
         if is_owner
         else []
     )
@@ -176,9 +214,112 @@ def project_detail(request: HttpRequest, project_id: UUID) -> HttpResponse:
             "project": project,
             "is_owner": is_owner,
             "revisions": revisions,
-            "viewer_count": sum(grant.revoked_at is None for grant in project.viewer_grants.all())
-            if is_owner
-            else 0,
+            "viewer_count": project_effective_viewer_count(project.id, user.id) if is_owner else 0,
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def project_access(request: HttpRequest, project_id: UUID) -> HttpResponse:
+    """List and manage Viewer epochs for one owner-controlled project."""
+    user = cast(User, request.user)
+    project = manageable_project(project_id, user.id)
+    if project is None:
+        return render(request, "portal/not_found.html", status=404)
+
+    form = GrantViewerForm(request.POST if request.method == "POST" else None)
+    if request.method == "POST" and form.is_valid():
+        target_soeid = cast(str, form.cleaned_data["soeid"])
+        try:
+            grant_project_viewer(
+                dashboard_id=project.id,
+                actor_id=user.id,
+                target_soeid=target_soeid,
+            )
+        except GrantViewerRejected as error:
+            form.add_error("soeid", _grant_rejection_message(error))
+        except ProjectAccessDenied:
+            return render(request, "portal/not_found.html", status=404)
+        else:
+            messages.success(request, f"Viewer access granted to {target_soeid}.")
+            return redirect("project-access", project_id=project.id)
+
+    if form.errors:
+        form.fields["soeid"].widget.attrs["aria-describedby"] = (
+            "viewer-soeid-help viewer-soeid-error"
+        )
+        form.fields["soeid"].widget.attrs["aria-invalid"] = "true"
+
+    active_grants = project_active_grants(project.id, user.id).order_by(
+        "viewer__soeid", "created_at", "id"
+    )
+    grant_history = project_grant_history(project.id, user.id).order_by("-revoked_at", "-id")
+    active_page = Paginator(active_grants, GRANT_PAGE_SIZE).get_page(request.GET.get("page"))
+    history_page = Paginator(grant_history, GRANT_PAGE_SIZE).get_page(
+        request.GET.get("history_page")
+    )
+    return render(
+        request,
+        "portal/projects/access.html",
+        {
+            "project": project,
+            "owner_soeid": user.soeid,
+            "form": form,
+            "active_grants": active_page,
+            "active_grants_page": active_page,
+            "grant_history": history_page,
+            "grant_history_page": history_page,
+            "viewer_count": project_effective_viewer_count(project.id, user.id),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def project_grant_revoke(
+    request: HttpRequest,
+    project_id: UUID,
+    grant_id: UUID,
+) -> HttpResponse:
+    """Confirm and perform an idempotent revocation of one Viewer epoch."""
+    user = cast(User, request.user)
+    project = manageable_project(project_id, user.id)
+    if project is None:
+        return render(request, "portal/not_found.html", status=404)
+
+    form = ConfirmActionForm(request.POST if request.method == "POST" else None)
+    form.fields["confirm"].label = "I understand this ends Viewer access for this project."
+    if request.method == "POST" and form.is_valid():
+        try:
+            revoked_grant = revoke_project_viewer(
+                dashboard_id=project.id,
+                grant_id=grant_id,
+                actor_id=user.id,
+            )
+        except ProjectAccessDenied:
+            return render(request, "portal/not_found.html", status=404)
+        messages.success(request, f"Viewer access for {revoked_grant.viewer.soeid} was revoked.")
+        return redirect("project-access", project_id=project.id)
+
+    if form.errors:
+        form.fields["confirm"].widget.attrs["aria-describedby"] = "revoke-confirm-error"
+        form.fields["confirm"].widget.attrs["aria-invalid"] = "true"
+
+    grant = project_active_grants(project.id, user.id).filter(id=grant_id).first()
+    if grant is None:
+        # Retain a safe retry path after another request has already closed the epoch.
+        grant = project_grant_history(project.id, user.id).filter(id=grant_id).first()
+    if grant is None:
+        return render(request, "portal/not_found.html", status=404)
+
+    return render(
+        request,
+        "portal/projects/revoke.html",
+        {
+            "project": project,
+            "grant": grant,
+            "form": form,
         },
     )
 
@@ -195,10 +336,7 @@ def project_preview(
     project = manageable_project(project_id, user.id)
     if project is None:
         return render(request, "portal/not_found.html", status=404)
-    revision = next(
-        (candidate for candidate in project.revisions.all() if candidate.id == revision_id),
-        None,
-    )
+    revision = project_revisions(project.id, user.id).filter(id=revision_id).first()
     if revision is None:
         return render(request, "portal/not_found.html", status=404)
     try:
@@ -330,6 +468,14 @@ def _upload_error_message(error: UploadRejected) -> str:
         return message
     location = "dashboard HTML" if error.issue.part_index == 0 else "CSV attachment"
     return f"Problem with the {location}: {message}"
+
+
+def _grant_rejection_message(error: GrantViewerRejected) -> str:
+    """Translate typed domain outcomes into safe, actionable form copy."""
+    return GRANT_REJECTION_MESSAGES.get(
+        error.reason,
+        "Viewer access could not be granted. Review the SOEID and try again.",
+    )
 
 
 @require_http_methods(["GET", "POST"])

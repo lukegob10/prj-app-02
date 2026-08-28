@@ -6,8 +6,10 @@ from agora.portal.views import (
     home,
     login_view,
     logout_view,
+    project_access,
     project_create,
     project_detail,
+    project_grant_revoke,
     project_list,
     project_preview,
     project_upload,
@@ -26,6 +28,12 @@ urlpatterns = [
     path("projects/", project_list, name="project-list"),
     path("projects/new/", project_create, name="project-create"),
     path("projects/<uuid:project_id>/", project_detail, name="project-detail"),
+    path("projects/<uuid:project_id>/access/", project_access, name="project-access"),
+    path(
+        "projects/<uuid:project_id>/access/<uuid:grant_id>/revoke/",
+        project_grant_revoke,
+        name="project-grant-revoke",
+    ),
     path("projects/<uuid:project_id>/upload/", project_upload, name="project-upload"),
     path("projects/<uuid:project_id>/view/", project_view, name="project-view"),
     path(

@@ -7,10 +7,11 @@ artifact route.
 
 ## Addressing and writes
 
-- Logical user filenames never enter the storage adapter. They are NFC display metadata with a
-  separate NFKC/casefold comparison key unique within a Revision. PostgreSQL independently
-  verifies both canonical forms with its ICU Unicode collation before enforcing uniqueness, so
-  bulk or raw writes cannot supply a fabricated comparison key.
+- Logical user filenames never enter the storage adapter. The application stores NFC display
+  metadata with a separate NFKC/casefold comparison key unique within a Revision. Oracle rejects
+  non-composed or non-lowercase bulk inserts and enforces comparison-key uniqueness. Because
+  Oracle does not reproduce Python's full NFKC/casefold transformation, all application writes
+  must continue through the shared name normalizer.
 - The adapter generates 256-bit lowercase ASCII keys shaped as
   `v1/<2 hex>/<2 hex>/<64 hex>`. Shards must match the token and every key is validated before a
   filesystem operation.
@@ -25,7 +26,7 @@ artifact route.
 A `StorageReservation` is durable cleanup ownership for bytes that are not yet an Artifact. It is
 not a Revision and is never viewer-visible. Complete-revision creation reserves keys first, writes
 and verifies bytes, then durably records whether the key owns verified bytes or encountered a
-collision. It next uses an outermost PostgreSQL transaction to create immutable metadata, advance
+collision. It next uses an outermost Oracle transaction to create immutable metadata, advance
 only `latest_revision`, append an audit event, and consume reservations. Publishing is unchanged.
 
 Known rollback removes unowned files idempotently. If cleanup fails or the process terminates, the
@@ -55,12 +56,12 @@ bytes. Cleanup never follows arbitrary filenames or recursively deletes the root
 - File data is fsynced on Windows/POSIX; each new shard entry and the containing final directory
   are fsynced on POSIX. Equivalent Windows directory-entry or network-filesystem power-loss
   guarantees must be established operationally.
-- PostgreSQL must be built with ICU and provide the standard `und-x-icu` collation used by the
-  schema's platform-independent filename comparison check.
+- The Oracle schema must retain the checked-in constraints, function-based index, and PL/SQL
+  triggers; migration validation fails if any required trigger has compilation errors.
 
 ## Backup and restore boundary
 
-Back up PostgreSQL metadata and `AGORA_ARTIFACT_ROOT` as one recovery set. Pause revision creation
+Back up Oracle metadata and `AGORA_ARTIFACT_ROOT` as one recovery set. Pause revision creation
 or use storage/database snapshots with a shared recovery point. After restore, run migrations and
 the cleanup command, then verify every Artifact key has matching size/digest before enabling later
 artifact-delivery routes. An Artifact row without bytes is an integrity incident; a reservation

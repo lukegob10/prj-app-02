@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import sys
 from importlib import import_module
+from pathlib import Path
 from typing import Protocol, cast
 
 import pytest
 from django.conf import settings
 from django.db import connection
 from django.test import Client, override_settings
+
+from agora.db.backends.treasury_oracle.base import treasury_dependency_path
 
 
 class ServiceEntrypoint(Protocol):
@@ -93,8 +97,11 @@ def test_service_entrypoints_and_content_composition_import() -> None:
 
 @pytest.mark.smoke
 @pytest.mark.django_db
-def test_postgresql_connection() -> None:
-    assert connection.vendor == "postgresql"
+def test_oracle_connection_uses_the_expected_vendor() -> None:
+    package_path = treasury_dependency_path()
+    assert Path(sys.prefix).resolve() in package_path.parents
+    assert package_path.parent.name == "treasury_analytics"
+    assert connection.vendor == "oracle"
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")
         assert cursor.fetchone() == (1,)

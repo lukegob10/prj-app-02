@@ -13,6 +13,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from agora.persistence.access import active_viewer_grant, user_can_view_published
 from agora.persistence.models import (
     AuditEvent,
     Dashboard,
@@ -21,6 +22,7 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
+from agora.persistence.querying import get_one_or_none
 
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}", flags=re.ASCII)
 _TOKEN_BYTES = 32
@@ -64,13 +66,12 @@ def issue_owner_preview(
     """Issue a private preview only for the active owner and exact complete revision."""
     issued_at = now or timezone.now()
     with transaction.atomic(durable=True):
-        dashboard = (
-            Dashboard.objects.select_for_update()
-            .filter(id=dashboard_id)
-            .exclude(state__in=[Dashboard.State.ARCHIVED, Dashboard.State.DELETED])
-            .first()
+        dashboard = get_one_or_none(
+            Dashboard.objects.filter(id=dashboard_id).exclude(
+                state__in=[Dashboard.State.ARCHIVED, Dashboard.State.DELETED]
+            )
         )
-        viewer = User.objects.select_for_update().filter(id=viewer_id, is_active=True).first()
+        viewer = get_one_or_none(User.objects.filter(id=viewer_id, is_active=True))
         revision = Revision.objects.filter(
             id=revision_id,
             dashboard_id=dashboard_id,
@@ -87,6 +88,7 @@ def issue_owner_preview(
             dashboard=dashboard,
             revision=revision,
             viewer=viewer,
+            viewer_grant=None,
             audience=RenderAuthorization.Audience.PREVIEW,
             issued_at=issued_at,
         )
@@ -109,32 +111,28 @@ def issue_published_view(
     """Issue a stable-URL view for an owner or active grant to the pinned revision."""
     issued_at = now or timezone.now()
     with transaction.atomic(durable=True):
-        dashboard = (
-            Dashboard.objects.select_for_update()
-            .select_related("published_revision")
-            .filter(
+        dashboard = get_one_or_none(
+            Dashboard.objects.select_related("published_revision").filter(
                 id=dashboard_id,
                 state=Dashboard.State.PUBLISHED,
                 published_revision__isnull=False,
             )
-            .first()
         )
-        viewer = User.objects.select_for_update().filter(id=viewer_id, is_active=True).first()
+        viewer = get_one_or_none(User.objects.filter(id=viewer_id, is_active=True))
         if dashboard is None or viewer is None or dashboard.published_revision is None:
             raise RenderAuthorizationDenied("render authorization is not available")
-        if (
-            dashboard.owner_id != viewer.id
-            and not ViewerGrant.objects.filter(
-                dashboard=dashboard,
-                viewer=viewer,
-                revoked_at__isnull=True,
-            ).exists()
-        ):
+        grant = (
+            active_viewer_grant(dashboard_id=dashboard.id, viewer_id=viewer.id)
+            if dashboard.owner_id != viewer.id
+            else None
+        )
+        if not user_can_view_published(dashboard=dashboard, viewer=viewer, viewer_grant=grant):
             raise RenderAuthorizationDenied("render authorization is not available")
         credential = _create_authorization(
             dashboard=dashboard,
             revision=dashboard.published_revision,
             viewer=viewer,
+            viewer_grant=grant,
             audience=RenderAuthorization.Audience.VIEWER,
             issued_at=issued_at,
         )
@@ -159,7 +157,9 @@ def resolve_render_authorization(
     if _TOKEN_PATTERN.fullmatch(token) is None:
         raise RenderAuthorizationDenied("render authorization is not available")
     authorization = (
-        RenderAuthorization.objects.select_related("viewer", "dashboard", "revision")
+        RenderAuthorization.objects.select_related(
+            "viewer", "dashboard", "revision", "viewer_grant"
+        )
         .filter(token_digest=_digest(token), audience=audience)
         .first()
     )
@@ -181,8 +181,8 @@ def revoke_render_authorization(
     """End a credential early; repeated revocation is idempotent."""
     revoked_at = now or timezone.now()
     with transaction.atomic(durable=True):
-        authorization = (
-            RenderAuthorization.objects.select_for_update().filter(id=authorization_id).first()
+        authorization = get_one_or_none(
+            RenderAuthorization.objects.select_for_update().filter(id=authorization_id)
         )
         if authorization is None or authorization.revoked_at is not None:
             return
@@ -195,6 +195,7 @@ def _create_authorization(
     dashboard: Dashboard,
     revision: Revision,
     viewer: User,
+    viewer_grant: ViewerGrant | None,
     audience: str,
     issued_at: datetime,
 ) -> RenderCredential:
@@ -208,6 +209,7 @@ def _create_authorization(
                     audience=audience,
                     viewer=viewer,
                     viewer_auth_version=viewer.auth_version,
+                    viewer_grant=viewer_grant,
                     dashboard=dashboard,
                     revision=revision,
                     expires_at=expires_at,
@@ -233,24 +235,26 @@ def _authorization_is_current(
         return False
     if authorization.audience == RenderAuthorization.Audience.PREVIEW:
         return (
-            authorization.dashboard.owner_id == authorization.viewer_id
+            authorization.viewer_grant_id is None
+            and authorization.dashboard.owner_id == authorization.viewer_id
             and authorization.dashboard.state
             not in {Dashboard.State.ARCHIVED, Dashboard.State.DELETED}
         )
     if authorization.audience != RenderAuthorization.Audience.VIEWER:
         return False
-    if (
-        authorization.dashboard.state != Dashboard.State.PUBLISHED
-        or authorization.dashboard.published_revision_id != authorization.revision_id
-    ):
+    if authorization.dashboard.published_revision_id != authorization.revision_id:
         return False
-    return (
-        authorization.dashboard.owner_id == authorization.viewer_id
-        or ViewerGrant.objects.filter(
-            dashboard_id=authorization.dashboard_id,
-            viewer_id=authorization.viewer_id,
-            revoked_at__isnull=True,
-        ).exists()
+    if (
+        authorization.dashboard.owner_id != authorization.viewer_id
+        and authorization.viewer_grant_id is None
+    ):
+        # Pre-epoch credentials fail closed after the migration instead of becoming
+        # valid again through some later grant for the same viewer.
+        return False
+    return user_can_view_published(
+        dashboard=authorization.dashboard,
+        viewer=authorization.viewer,
+        viewer_grant=authorization.viewer_grant,
     )
 
 

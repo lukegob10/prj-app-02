@@ -73,8 +73,7 @@ def test_portal_shell_renders_accessible_landmarks_and_truthful_states(client: C
     assert any(link.get("class") == "portal-skip-link" for link in links)
     assert any(link.get("aria-current") == "page" for link in links)
     assert any(
-        image.get("class") == "portal-brand__wordmark"
-        and image.get("alt") == "Agora"
+        image.get("class") == "portal-brand__wordmark" and image.get("alt") == "Agora"
         for image in parser.attributes_for("img")
     )
     assert parser.attributes_for("nav")[0].get("aria-label") == "Primary navigation"

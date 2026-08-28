@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,13 +35,15 @@ class Origin:
 
 @dataclass(frozen=True, slots=True)
 class DatabaseConfig:
-    """PostgreSQL connection settings."""
+    """Treasury Analytics Oracle profile selection."""
 
-    name: str
-    user: str
-    password: str
-    host: str
-    port: int
+    environment: str
+
+    @property
+    def password_variable(self) -> str:
+        """Return the credential name consumed by the local package."""
+
+        return f"TA_{self.environment}_PASSWORD"
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,25 +202,14 @@ def _parse_origin(environ: Mapping[str, str], name: str, errors: list[str]) -> O
 
 
 def _parse_database(environ: Mapping[str, str], errors: list[str]) -> DatabaseConfig | None:
-    name = _required(environ, "AGORA_DB_NAME", errors).strip()
-    user = _required(environ, "AGORA_DB_USER", errors).strip()
-    password = _required(environ, "AGORA_DB_PASSWORD", errors, reject_placeholder=True)
-    host = _required(environ, "AGORA_DB_HOST", errors).strip()
-    raw_port = _required(environ, "AGORA_DB_PORT", errors).strip()
-
-    port = 0
-    if raw_port:
-        try:
-            port = int(raw_port)
-        except ValueError:
-            errors.append("AGORA_DB_PORT must be an integer from 1 through 65535")
-        else:
-            if not 1 <= port <= 65535:
-                errors.append("AGORA_DB_PORT must be an integer from 1 through 65535")
-
-    if not all((name, user, password, host, port)):
+    value = _required(environ, "ENV", errors).strip().upper()
+    if not value:
         return None
-    return DatabaseConfig(name=name, user=user, password=password, host=host, port=port)
+    if re.fullmatch(r"[A-Z][A-Z0-9_-]{0,31}", value) is None:
+        errors.append("ENV must begin with a letter and contain only A-Z, 0-9, _ or -")
+        return None
+    _required(environ, f"TA_{value}_PASSWORD", errors, reject_placeholder=True)
+    return DatabaseConfig(environment=value)
 
 
 def _parse_absolute_path(environ: Mapping[str, str], name: str, errors: list[str]) -> Path | None:

@@ -21,6 +21,7 @@ from agora.persistence.models import (
     User,
 )
 from agora.persistence.names import LogicalName, normalize_logical_name
+from agora.persistence.querying import get_one_or_none
 from agora.persistence.storage import (
     ArtifactStorage,
     ArtifactStorageError,
@@ -168,10 +169,10 @@ def cleanup_expired_reservations(
     retained = 0
     for reservation_id in reservation_ids:
         with transaction.atomic(durable=True):
-            reservation = (
-                StorageReservation.objects.select_for_update()
-                .filter(id=reservation_id, expires_at__lte=cutoff)
-                .first()
+            reservation = get_one_or_none(
+                StorageReservation.objects.select_for_update().filter(
+                    id=reservation_id, expires_at__lte=cutoff
+                )
             )
             if reservation is None:
                 continue
@@ -280,15 +281,12 @@ def _commit_revision_metadata(
     prepared: Sequence[_PreparedArtifact],
 ) -> Revision:
     with transaction.atomic(durable=True):
-        creator = (
-            User.objects.select_for_update()
-            .filter(id=created_by_id)
-            .only("id", "is_active")
-            .first()
+        creator = get_one_or_none(
+            User.objects.select_for_update().filter(id=created_by_id).only("id", "is_active")
         )
         if creator is None or not creator.is_active:
             raise RevisionCreationError("revision creator must be active")
-        dashboard = Dashboard.objects.select_for_update().filter(id=dashboard_id).first()
+        dashboard = get_one_or_none(Dashboard.objects.select_for_update().filter(id=dashboard_id))
         if dashboard is None or dashboard.owner_id != created_by_id:
             raise RevisionCreationError("revision creator must own the dashboard")
         if dashboard.state not in _revision_accepting_states():
@@ -360,10 +358,10 @@ def _cleanup_unowned(storage: ArtifactStorage, reservations: Sequence[_CleanupCa
     for candidate in reservations:
         try:
             with transaction.atomic(durable=True):
-                reservation = (
-                    StorageReservation.objects.select_for_update()
-                    .filter(id=candidate.reservation_id)
-                    .first()
+                reservation = get_one_or_none(
+                    StorageReservation.objects.select_for_update().filter(
+                        id=candidate.reservation_id
+                    )
                 )
                 if reservation is None:
                     continue

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from getpass import getpass
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -18,17 +19,22 @@ def main() -> int:
         (
             secrets.token_urlsafe(64),
             secrets.token_urlsafe(64),
-            secrets.token_urlsafe(32),
         )
     )
+    oracle_password = os.environ.get("TA_PROD_PASSWORD") or getpass(
+        "Oracle password for the local PROD profile: "
+    )
+    if not oracle_password:
+        print("Oracle password cannot be blank.")
+        return 1
     lines: list[str] = []
     for line in template.splitlines():
         if line == "AGORA_PORTAL_SECRET_KEY=GENERATE_WITH_BOOTSTRAP":
             line = f"AGORA_PORTAL_SECRET_KEY={next(secret_values)}"
         elif line == "AGORA_CONTENT_SECRET_KEY=GENERATE_WITH_BOOTSTRAP":
             line = f"AGORA_CONTENT_SECRET_KEY={next(secret_values)}"
-        elif line == "AGORA_DB_PASSWORD=GENERATE_WITH_BOOTSTRAP":
-            line = f"AGORA_DB_PASSWORD={next(secret_values)}"
+        elif line == "TA_PROD_PASSWORD=SET_LOCALLY":
+            line = f"TA_PROD_PASSWORD={oracle_password}"
         elif line == "AGORA_ARTIFACT_ROOT=SET_BY_BOOTSTRAP":
             line = f"AGORA_ARTIFACT_ROOT={artifact_root}"
         lines.append(line)

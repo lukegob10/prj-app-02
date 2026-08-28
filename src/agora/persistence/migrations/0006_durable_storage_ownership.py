@@ -1,61 +1,64 @@
+"""Track durable storage ownership with an Oracle-enforced state machine."""
+
 from django.db import migrations, models
 
 FORWARD_GUARD_SQL = """
-CREATE OR REPLACE FUNCTION agora_guard_reservation_mutation() RETURNS trigger
-LANGUAGE plpgsql AS $$
+CREATE OR REPLACE TRIGGER agora_reservation_mut_guard
+BEFORE UPDATE ON persistence_storagereservation
+FOR EACH ROW
 BEGIN
-    IF ROW(OLD.id, OLD.storage_key, OLD.created_at, OLD.expires_at)
-           IS DISTINCT FROM
-       ROW(NEW.id, NEW.storage_key, NEW.created_at, NEW.expires_at) THEN
-        RAISE EXCEPTION 'storage reservation identity is immutable'
-            USING ERRCODE = '55000';
+    IF :NEW.id <> :OLD.id
+       OR :NEW.storage_key <> :OLD.storage_key
+       OR :NEW.created_at <> :OLD.created_at
+       OR :NEW.expires_at <> :OLD.expires_at THEN
+        raise_application_error(-20010, 'storage reservation identity is immutable');
     END IF;
-    IF OLD.verified_size IS NOT NULL
-       AND ROW(OLD.verified_size, OLD.verified_sha256)
-           IS DISTINCT FROM ROW(NEW.verified_size, NEW.verified_sha256) THEN
-        RAISE EXCEPTION 'storage verification receipt is immutable'
-            USING ERRCODE = '55000';
-    END IF;
-    IF NEW.storage_state IS DISTINCT FROM OLD.storage_state
-       AND NOT (
-           OLD.storage_state = 'reserved'
-           AND NEW.storage_state IN ('owned', 'collision')
+    IF :OLD.verified_size IS NOT NULL
+       AND (
+           :NEW.verified_size IS NULL
+           OR :NEW.verified_size <> :OLD.verified_size
+           OR :NEW.verified_sha256 IS NULL
+           OR :NEW.verified_sha256 <> :OLD.verified_sha256
        ) THEN
-        RAISE EXCEPTION 'storage reservation state transition is not allowed'
-            USING ERRCODE = '55000';
+        raise_application_error(-20010, 'storage verification receipt is immutable');
     END IF;
-    IF OLD.cleanup_required = TRUE AND NEW.cleanup_required = FALSE THEN
-        RAISE EXCEPTION 'storage cleanup requirement cannot be cleared'
-            USING ERRCODE = '55000';
+    IF :NEW.storage_state <> :OLD.storage_state
+       AND NOT (
+           :OLD.storage_state = 'reserved'
+           AND :NEW.storage_state IN ('owned', 'collision')
+       ) THEN
+        raise_application_error(-20010, 'storage reservation state transition is not allowed');
     END IF;
-    RETURN NEW;
+    IF :OLD.cleanup_required = 1 AND :NEW.cleanup_required = 0 THEN
+        raise_application_error(-20010, 'storage cleanup requirement cannot be cleared');
+    END IF;
 END;
-$$
 """
 
 REVERSE_GUARD_SQL = """
-CREATE OR REPLACE FUNCTION agora_guard_reservation_mutation() RETURNS trigger
-LANGUAGE plpgsql AS $$
+CREATE OR REPLACE TRIGGER agora_reservation_mut_guard
+BEFORE UPDATE ON persistence_storagereservation
+FOR EACH ROW
 BEGIN
-    IF ROW(OLD.id, OLD.storage_key, OLD.created_at, OLD.expires_at)
-           IS DISTINCT FROM
-       ROW(NEW.id, NEW.storage_key, NEW.created_at, NEW.expires_at) THEN
-        RAISE EXCEPTION 'storage reservation identity is immutable'
-            USING ERRCODE = '55000';
+    IF :NEW.id <> :OLD.id
+       OR :NEW.storage_key <> :OLD.storage_key
+       OR :NEW.created_at <> :OLD.created_at
+       OR :NEW.expires_at <> :OLD.expires_at THEN
+        raise_application_error(-20010, 'storage reservation identity is immutable');
     END IF;
-    IF OLD.verified_size IS NOT NULL
-       AND ROW(OLD.verified_size, OLD.verified_sha256)
-           IS DISTINCT FROM ROW(NEW.verified_size, NEW.verified_sha256) THEN
-        RAISE EXCEPTION 'storage verification receipt is immutable'
-            USING ERRCODE = '55000';
+    IF :OLD.verified_size IS NOT NULL
+       AND (
+           :NEW.verified_size IS NULL
+           OR :NEW.verified_size <> :OLD.verified_size
+           OR :NEW.verified_sha256 IS NULL
+           OR :NEW.verified_sha256 <> :OLD.verified_sha256
+       ) THEN
+        raise_application_error(-20010, 'storage verification receipt is immutable');
     END IF;
-    IF OLD.cleanup_required = TRUE AND NEW.cleanup_required = FALSE THEN
-        RAISE EXCEPTION 'storage cleanup requirement cannot be cleared'
-            USING ERRCODE = '55000';
+    IF :OLD.cleanup_required = 1 AND :NEW.cleanup_required = 0 THEN
+        raise_application_error(-20010, 'storage cleanup requirement cannot be cleared');
     END IF;
-    RETURN NEW;
 END;
-$$
 """
 
 
@@ -110,5 +113,5 @@ class Migration(migrations.Migration):
                 name="agora_reservation_state_receipt_match",
             ),
         ),
-        migrations.RunSQL(sql=FORWARD_GUARD_SQL, reverse_sql=REVERSE_GUARD_SQL),
+        migrations.RunSQL(sql=(FORWARD_GUARD_SQL,), reverse_sql=(REVERSE_GUARD_SQL,)),
     ]

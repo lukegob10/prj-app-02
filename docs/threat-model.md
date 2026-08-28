@@ -45,13 +45,30 @@ Dashboard content access.
 11. Hostile Revisions must not share durable browser storage or ambient credentials. A single
     shared content origin with `allow-same-origin` is not an approved isolation design.
 
+## Project-sharing authorization matrix
+
+`Dashboard` is the security boundary. Owners receive implicit management rights only for their
+own active account. An active Viewer receives only the current pinned Published Revision of a
+Dashboard with an unrevoked grant; the grant does not expose drafts, previews, arbitrary
+Revisions, or owner metadata. Revoked, disabled, unrelated, administrator-without-grant, and
+unauthenticated principals fail closed, and external project lookups use the same generic not-found
+behavior to avoid enumeration. An owner may see retained grant history, including a disabled
+target, but that history does not restore access.
+
+Disabling an owner removes that owner's management and viewing access but does not implicitly
+unpublish the Dashboard or revoke access for other active granted viewers.
+
+Revoke, disable, and unpublish state are rechecked on every HTML and CSV authorization request.
+An already-issued render credential therefore fails at its next authorization check. This cannot
+recall bytes that were already streamed to a browser, which is an explicit residual risk.
+
 ## Threat register
 
 | Threat | Required controls | Verification / owning ticket |
 |---|---|---|
 | **Uploaded HTML crosses into portal** | Separate sites and service compositions; portal URLconf contains no artifact route; never template/mark safe/`srcdoc` uploaded bytes; content response CSP plus iframe sandbox; no portal session middleware on content. | Portal/content integration tests assert the exact split and browser fixtures exercise hostile content against the same policy primitives. |
 | **Malicious CSV executes or surprises viewers** | Treat bytes as opaque hostile data; validate encoding/type/size without evaluating formulas; `text/csv`, `nosniff`, safe response filenames; never render cells as portal HTML; visibly disclose whole-CSV access. | Upload cases in AG-006; MIME/formula and authorization cases in AG-007/AG-011. Spreadsheet formula execution after a user deliberately opens a download cannot be eliminated; author/viewer guidance must warn. |
-| **IDOR / cross-Dashboard access** | Central default-deny policy on metadata, HTML, and every CSV request; resolve authorization before artifact metadata; scope by principal, Dashboard, lifecycle, pinned Revision, and attachment; generic external failures. | Full owner/viewer/unrelated/disabled/unauthenticated matrix in AG-004/AG-011, including altered Dashboard, Revision, attachment, filename, and key. |
+| **IDOR / cross-Dashboard access** | Central default-deny policy on metadata, HTML, and every CSV request; resolve authorization before artifact metadata; scope by principal, Dashboard, lifecycle, pinned Revision, and attachment; generic external failures. Retained ViewerGrant epochs are checked for the exact Dashboard and viewer, with active-only uniqueness and indexed lookups. | Full owner/viewer/unrelated/administrator/disabled/unauthenticated matrix in AG-004/AG-011, including altered Dashboard, Revision, attachment, filename, and key. |
 | **Path traversal / key confusion** | Exact ASCII storage-key grammar generated independently of filenames; never join request values to paths; Unicode comparison keys remain metadata only; absolute private root with ancestor/reparse checks; no-clobber atomic operations. | AG-002 unit/integration cases cover traversal/key forms, Unicode collisions, symlink/reparse handling, collisions, and partial writes. AG-006 still owns multipart filename/content validation. |
 | **Render-token replay or widening** | A 256-bit random bearer is stored only as a digest, expires after five minutes, and is scoped to principal, auth version, Dashboard, Revision, and audience. Every file request rechecks active User, Grant/ownership, publication, revision, expiry, and revocation. TLS, `no-store`, `no-referrer`, and disabled/redacted path logging are mandatory. The current multi-request bearer remains replayable inside its short window so referenced CSV requests can work. | Integration tests cover expiry, alteration, wrong audience, revocation, disablement, unpublish, missing attachment, and cross-scope denial. A one-use bootstrap/content-session exchange remains a hardening option before claiming strict non-shareability. |
 | **Oversized or deceptive upload** | Edge and application caps; stream while counting independently of `Content-Length`; per-file/count/aggregate limits; bounded parse time; atomic commit and orphan cleanup; reject malformed multipart/type confusion. | AG-006/AG-011 test limit and limit+1, missing/false/chunked lengths, too many files, aggregate overflow, disconnect, and no visible Revision/orphan. |

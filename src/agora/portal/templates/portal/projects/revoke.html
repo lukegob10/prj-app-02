@@ -1,0 +1,31 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Remove access | {{ project.name }} | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow="Project access" title="Remove Viewer access" intro="Confirm the project-scoped access change. The retained grant epoch remains visible in the audit history." %}
+
+  <section class="portal-section portal-section--compact" aria-labelledby="revoke-viewer-heading">
+    <div class="portal-danger-zone">
+      <p class="portal-eyebrow portal-eyebrow--danger">Access removal</p>
+      <h2 id="revoke-viewer-heading">Remove access for {{ grant.viewer.soeid }}?</h2>
+      <p><strong>{{ grant.viewer.soeid }}</strong> will no longer be able to start a render for <strong>{{ project.name }}</strong>. Any bytes already streamed to that viewer cannot be recalled. A later grant creates a new retained access epoch.</p>
+      {% if not grant.viewer.is_active %}<p>This account is already disabled; revoking the grant records the owner’s decision and keeps future reactivation from restoring access to this epoch.</p>{% endif %}
+      {% if grant.revoked_at %}<p role="status">This grant epoch was already revoked on {{ grant.revoked_at|date:"M j, Y, g:i a" }}. Submitting again is safe and idempotent.</p>{% endif %}
+      <form class="portal-form-stack" method="post" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="portal-check-field">
+          {{ form.confirm }}
+          <label class="portal-form-field__label" for="{{ form.confirm.id_for_label }}">{{ form.confirm.label }}</label>
+        </div>
+        {% if form.confirm.errors %}<div class="portal-form-field__error" id="revoke-confirm-error" role="alert">{{ form.confirm.errors }}</div>{% endif %}
+        <div class="portal-action-group">
+          <a class="portal-button portal-button--quiet" href="{% url 'project-access' project.id %}">Cancel</a>
+          <button class="portal-button portal-button--danger" type="submit">Remove Viewer access</button>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

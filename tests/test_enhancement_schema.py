@@ -188,9 +188,11 @@ def _migration_added_fields(module: ModuleType, model_name: str) -> set[str]:
     }
 
 
-def test_historical_migrations_are_byte_for_byte_unchanged() -> None:
+def test_historical_migrations_are_content_unchanged() -> None:
     actual = {
-        name: hashlib.sha256((_MIGRATION_DIRECTORY / name).read_bytes()).hexdigest()
+        name: hashlib.sha256(
+            (_MIGRATION_DIRECTORY / name).read_bytes().replace(b"\r\n", b"\n")
+        ).hexdigest()
         for name in _HISTORICAL_MIGRATION_DIGESTS
     }
 

@@ -134,10 +134,11 @@ the same default-deny project policy, with generic not-found behavior for unrela
 Grant rows are retained epochs: revocation closes an epoch and a later regrant creates a new row.
 The active-only uniqueness invariant allows at most one open epoch for a Dashboard/viewer pair
 without destroying audit history. Active-grant checks and viewer-to-project discovery are
-index-backed. Project detail uses a database count and bounded lazy querysets; it never prefetches
-all grant or revision history merely to display a count. The scale workload and release gates are
-recorded in [`docs/scaling.md`](scaling.md), and remain unverified until an Oracle-backed staging
-run.
+index-backed. Portal collections use signed, scope-bound keyset cursors and fetch at most 25 rows
+plus one navigation sentinel; navigation does not issue full counts or deep offsets. Project
+detail omits decorative Viewer counts, and artifact metadata is fetched only after a revision page
+is bounded. The scale workload and release gates are recorded in
+[`docs/scaling.md`](scaling.md), and remain unverified until an Oracle-backed staging run.
 
 AG-002 coordinates Oracle and the filesystem through durable `StorageReservation` rows.
 Artifact bytes are streamed, fsynced, read-back verified, and installed without clobbering before

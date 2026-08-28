@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -251,9 +252,13 @@ def test_project_access_paginates_current_viewers_and_retains_disabled_status(
 
     client = authenticated_client(owner)
     first = client.get(reverse("project-access", args=[project.id]))
-    second = client.get(reverse("project-access", args=[project.id]), {"page": 2})
+    next_url = first.context["active_grants_page"].next_url
+    assert next_url is not None
+    second = client.get(next_url)
     assert first.status_code == 200
     assert second.status_code == 200
+    assert len(first.context["active_grants"]) == 25
+    assert len(second.context["active_grants"]) == 1
     assert b"ACCESS.VIEWER00" in first.content
     assert b"ACCESS.VIEWER25" not in first.content
     assert b"ACCESS.VIEWER25" in second.content
@@ -271,8 +276,9 @@ def test_project_pagination_preserves_mine_and_shared_scope(
     project_for(owner, name="Owned second")
     mine = authenticated_client(owner).get(reverse("project-list"))
     assert mine.status_code == 200
-    assert b'aria-label="Project pages"' in mine.content
-    assert b"?page=2" in mine.content
+    assert b'aria-label="Project results"' in mine.content
+    assert b"cursor=" in mine.content
+    assert b"page=" not in mine.content
 
     sharer = User.objects.create_user("ACCESS.SHARER")
     first_shared = published_project(sharer, tmp_path / "shared-one", name="Shared first")
@@ -284,9 +290,35 @@ def test_project_pagination_preserves_mine_and_shared_scope(
             target_soeid=viewer.soeid,
         )
 
-    shared = authenticated_client(viewer).get(reverse("project-list"), {"scope": "shared"})
+    viewer_client = authenticated_client(viewer)
+    with CaptureQueriesContext(connection) as shared_queries:
+        shared = viewer_client.get(reverse("project-list"), {"scope": "shared"})
     assert shared.status_code == 200
-    assert b"?scope=shared&amp;page=2" in shared.content
+    assert b"?scope=shared&amp;cursor=" in shared.content
+    assert len(shared_queries) <= 3
+    assert all("COUNT(" not in query["sql"].upper() for query in shared_queries)
+    assert all(" OFFSET " not in query["sql"].upper() for query in shared_queries)
+
+
+def test_project_list_is_result_bounded_and_query_constant(owner: User) -> None:
+    client = authenticated_client(owner)
+    project_for(owner, name="Baseline")
+    with CaptureQueriesContext(connection) as baseline_queries:
+        baseline = client.get(reverse("project-list"))
+    assert baseline.status_code == 200
+    assert len(baseline_queries) <= 3
+
+    for number in range(30):
+        project_for(owner, name=f"Growth {number:02d}")
+    with CaptureQueriesContext(connection) as populated_queries:
+        populated = client.get(reverse("project-list"))
+    assert populated.status_code == 200
+    assert len(populated.context["projects"]) == 25
+    assert populated.context["project_page"].next_url is not None
+    assert len(populated_queries) == len(baseline_queries)
+    assert len(populated_queries) <= 3
+    assert all("COUNT(" not in query["sql"].upper() for query in populated_queries)
+    assert all(" OFFSET " not in query["sql"].upper() for query in populated_queries)
 
 
 def test_revision_history_is_paginated_before_artifacts_are_prefetched(
@@ -307,14 +339,33 @@ def test_revision_history_is_paginated_before_artifacts_are_prefetched(
 
     client = authenticated_client(owner)
     first_page = client.get(reverse("project-detail", args=[project.id]))
-    second_page = client.get(reverse("project-detail", args=[project.id]), {"page": 2})
+    next_url = first_page.context["revision_page"].next_url
+    assert next_url is not None
+    second_page = client.get(next_url)
     assert first_page.status_code == 200
     assert b"Revision 2" in first_page.content
     assert b"Revision 1" not in first_page.content
-    assert b'aria-label="Revision pages"' in first_page.content
+    assert b'aria-label="Revision history"' in first_page.content
     assert second_page.status_code == 200
     assert b"Revision 1" in second_page.content
     assert b"Revision 2" not in second_page.content
+
+
+def test_revision_history_default_page_is_bounded_to_25(owner: User) -> None:
+    project = project_for(owner)
+    for number in range(1, 27):
+        Revision.objects.create(dashboard=project, number=number, created_by=owner)
+
+    client = authenticated_client(owner)
+    first = client.get(reverse("project-detail", args=[project.id]))
+    next_url = first.context["revision_page"].next_url
+    assert first.status_code == 200
+    assert len(first.context["revisions"]) == 25
+    assert next_url is not None
+
+    second = client.get(next_url)
+    assert second.status_code == 200
+    assert len(second.context["revisions"]) == 1
 
 
 def test_access_pagers_preserve_each_others_page(
@@ -343,56 +394,89 @@ def test_access_pagers_preserve_each_others_page(
             actor_id=owner.id,
         )
 
-    response = authenticated_client(owner).get(
+    client = authenticated_client(owner)
+    first = client.get(reverse("project-access", args=[project.id]))
+    active_cursor = first.context["active_grants_page"].next_cursor
+    history_cursor = first.context["grant_history_page"].next_cursor
+    assert active_cursor is not None
+    assert history_cursor is not None
+    response = client.get(
         reverse("project-access", args=[project.id]),
-        {"page": 2, "history_page": 2},
+        {"active_cursor": active_cursor, "history_cursor": history_cursor},
     )
     assert response.status_code == 200
-    assert b"?page=1&amp;history_page=2" in response.content
-    assert b"?page=2&amp;history_page=1" in response.content
+    active_previous = response.context["active_grants_page"].previous_url
+    history_previous = response.context["grant_history_page"].previous_url
+    assert active_previous is not None and "history_cursor=" in active_previous
+    assert history_previous is not None and "active_cursor=" in history_previous
 
 
 def test_project_detail_query_count_stays_bounded_as_revision_history_grows(
     owner: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr("agora.portal.views.REVISION_PAGE_SIZE", 1)
     project = project_for(owner)
     Revision.objects.create(dashboard=project, number=1, created_by=owner)
+    Revision.objects.create(dashboard=project, number=2, created_by=owner)
     client = authenticated_client(owner)
     detail_url = reverse("project-detail", args=[project.id])
+    first = client.get(detail_url)
+    next_url = first.context["revision_page"].next_url
+    assert next_url is not None
 
     with CaptureQueriesContext(connection) as baseline_queries:
-        baseline = client.get(detail_url)
+        baseline = client.get(next_url)
     assert baseline.status_code == 200
 
-    for number in range(2, 42):
+    for number in range(3, 43):
         Revision.objects.create(dashboard=project, number=number, created_by=owner)
+    populated_first = client.get(detail_url)
+    populated_next_url = populated_first.context["revision_page"].next_url
+    assert populated_next_url is not None
 
     with CaptureQueriesContext(connection) as populated_queries:
-        populated = client.get(detail_url, {"page": 2})
+        populated = client.get(populated_next_url)
     assert populated.status_code == 200
     assert len(populated_queries) == len(baseline_queries)
-    assert len(populated_queries) <= 7
+    assert len(populated_queries) <= 5
+    assert all("COUNT(" not in query["sql"].upper() for query in populated_queries)
+    assert all(" OFFSET " not in query["sql"].upper() for query in populated_queries)
 
 
 def test_project_access_query_count_stays_bounded_as_grant_history_grows(
     owner: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr("agora.portal.views.GRANT_PAGE_SIZE", 1)
     project = project_for(owner)
-    active = User.objects.create_user("ACCESS.QUERY.ACTIVE")
-    revoked = User.objects.create_user("ACCESS.QUERY.REVOKED")
-    ViewerGrant.objects.create(dashboard=project, viewer=active, created_by=owner)
-    ViewerGrant.objects.create(
-        dashboard=project,
-        viewer=revoked,
-        created_by=owner,
-        revoked_at=timezone.now(),
-        revoked_by=owner,
-    )
+    for suffix in ("A", "B"):
+        active = User.objects.create_user(f"ACCESS.QUERY.ACTIVE{suffix}")
+        revoked = User.objects.create_user(f"ACCESS.QUERY.REVOKED{suffix}")
+        ViewerGrant.objects.create(dashboard=project, viewer=active, created_by=owner)
+        ViewerGrant.objects.create(
+            dashboard=project,
+            viewer=revoked,
+            created_by=owner,
+            revoked_at=timezone.now(),
+            revoked_by=owner,
+        )
     client = authenticated_client(owner)
     access_url = reverse("project-access", args=[project.id])
+    first = client.get(access_url)
+    baseline_active_cursor = first.context["active_grants_page"].next_cursor
+    baseline_history_cursor = first.context["grant_history_page"].next_cursor
+    assert baseline_active_cursor is not None
+    assert baseline_history_cursor is not None
 
     with CaptureQueriesContext(connection) as baseline_queries:
-        baseline = client.get(access_url)
+        baseline = client.get(
+            access_url,
+            {
+                "active_cursor": baseline_active_cursor,
+                "history_cursor": baseline_history_cursor,
+            },
+        )
     assert baseline.status_code == 200
 
     for number in range(30):
@@ -410,9 +494,110 @@ def test_project_access_query_count_stays_bounded_as_grant_history_grows(
             revoked_at=timezone.now(),
             revoked_by=owner,
         )
+    populated_first = client.get(access_url)
+    populated_active_cursor = populated_first.context["active_grants_page"].next_cursor
+    populated_history_cursor = populated_first.context["grant_history_page"].next_cursor
+    assert populated_active_cursor is not None
+    assert populated_history_cursor is not None
 
     with CaptureQueriesContext(connection) as populated_queries:
-        populated = client.get(access_url, {"page": 2, "history_page": 2})
+        populated = client.get(
+            access_url,
+            {
+                "active_cursor": populated_active_cursor,
+                "history_cursor": populated_history_cursor,
+            },
+        )
     assert populated.status_code == 200
     assert len(populated_queries) == len(baseline_queries)
-    assert len(populated_queries) <= 8
+    assert len(populated_queries) <= 5
+    assert all("COUNT(" not in query["sql"].upper() for query in populated_queries)
+    assert all(" OFFSET " not in query["sql"].upper() for query in populated_queries)
+
+
+def test_portal_read_paths_reject_tampered_or_cross_scope_cursors(
+    owner: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("agora.portal.views.PROJECT_PAGE_SIZE", 1)
+    project = project_for(owner, name="Cursor one")
+    project_for(owner, name="Cursor two")
+    client = authenticated_client(owner)
+
+    first = client.get(reverse("project-list"))
+    cursor = first.context["project_page"].next_cursor
+    assert cursor is not None
+    tampered = f"{cursor[:-1]}{'A' if cursor[-1] != 'A' else 'B'}"
+
+    assert client.get(reverse("project-list"), {"cursor": tampered}).status_code == 404
+    assert (
+        client.get(
+            reverse("project-list"),
+            {"scope": "shared", "cursor": cursor},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(reverse("project-detail", args=[project.id]), {"cursor": "invalid"}).status_code
+        == 404
+    )
+    access_url = reverse("project-access", args=[project.id])
+    assert client.get(access_url, {"active_cursor": "invalid"}).status_code == 404
+    assert client.get(access_url, {"history_cursor": "invalid"}).status_code == 404
+
+
+def test_keyset_navigation_skips_projects_deleted_after_cursor_issue(
+    owner: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("agora.portal.views.PROJECT_PAGE_SIZE", 1)
+    projects = [project_for(owner, name=f"Lifecycle {number}") for number in range(3)]
+    moments = [timezone.now() - timedelta(minutes=number) for number in range(3)]
+    for project, updated_at in zip(projects, moments, strict=True):
+        Dashboard.objects.filter(id=project.id).update(updated_at=updated_at)
+
+    client = authenticated_client(owner)
+    first = client.get(reverse("project-list"))
+    next_url = first.context["project_page"].next_url
+    assert next_url is not None
+    assert projects[0].name.encode() in first.content
+
+    projects[1].state = Dashboard.State.DELETED
+    projects[1].save(update_fields=("state", "updated_at"))
+    second = client.get(next_url)
+    assert second.status_code == 200
+    assert projects[1].name.encode() not in second.content
+    assert projects[2].name.encode() in second.content
+
+
+def test_active_grant_cursor_survives_a_revocation_between_requests(
+    owner: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("agora.portal.views.GRANT_PAGE_SIZE", 1)
+    project = project_for(owner)
+    viewers = [User.objects.create_user(f"ACCESS.CHANGE.{suffix}") for suffix in ("A", "B", "C")]
+    grants = [
+        grant_project_viewer(
+            dashboard_id=project.id,
+            actor_id=owner.id,
+            target_soeid=viewer.soeid,
+        )
+        for viewer in viewers
+    ]
+
+    client = authenticated_client(owner)
+    first = client.get(reverse("project-access", args=[project.id]))
+    next_url = first.context["active_grants_page"].next_url
+    assert next_url is not None
+    assert viewers[0].soeid.encode() in first.content
+
+    revoke_project_viewer(
+        dashboard_id=project.id,
+        grant_id=grants[1].id,
+        actor_id=owner.id,
+    )
+    second = client.get(next_url)
+    assert second.status_code == 200
+    assert viewers[1].soeid.encode() not in second.content
+    assert viewers[2].soeid.encode() in second.content

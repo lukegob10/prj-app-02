@@ -11,9 +11,38 @@
     <div class="portal-section__heading">
       <h2 id="user-table-heading">Provisioned accounts</h2>
     </div>
-    <div class="portal-table-wrap">
+    <form class="portal-search" role="search" method="get" action="{{ search_url }}">
+      <label class="portal-form-field__label" for="user-search">Search users</label>
+      <p class="portal-form-field__help" id="user-search-help">Enter the start of a SOEID.</p>
+      <div class="portal-search__controls">
+        <input
+          class="portal-input portal-search__input"
+          id="user-search"
+          name="query"
+          type="search"
+          value="{{ search_form.query.value|default_if_none:'' }}"
+          maxlength="64"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          aria-describedby="user-search-help{% if search_form.query.errors %} user-search-error{% endif %}"
+          {% if search_form.query.errors %}aria-invalid="true"{% endif %}
+        >
+        <button class="portal-button portal-button--secondary" type="submit">Search</button>
+        {% if search_form.query.value %}
+          <a class="portal-button portal-button--quiet" href="{{ clear_search_url }}">Clear search</a>
+        {% endif %}
+      </div>
+      {% if search_form.query.errors %}
+        <div class="portal-form-field__error" id="user-search-error" role="alert">{{ search_form.query.errors }}</div>
+      {% endif %}
+    </form>
+    {% if search_query and not search_form.query.errors %}
+      <p class="portal-search__summary">Showing SOEIDs that start with <strong>{{ search_query }}</strong>.</p>
+    {% endif %}
+    <div class="portal-table-wrap" role="region" aria-labelledby="user-table-caption" tabindex="0">
       <table class="portal-table">
-        <caption>Provisioned Agora users and available account actions</caption>
+        <caption id="user-table-caption">Provisioned Agora users and available account actions</caption>
         <thead>
           <tr>
             <th scope="col">SOEID</th>
@@ -54,10 +83,23 @@
               </td>
             </tr>
           {% empty %}
-            <tr><td colspan="4">No users have been provisioned.</td></tr>
+            <tr>
+              <td colspan="4">
+                {% if user_page.previous_url or user_page.next_url %}
+                  The user list changed. Use Previous or Next to continue.
+                {% elif search_form.query.errors %}
+                  Fix the search above.
+                {% elif search_query %}
+                  No users match this search.
+                {% else %}
+                  No users have been provisioned.
+                {% endif %}
+              </td>
+            </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    {% include "portal/components/cursor-pagination.html" with page=user_page pagination_label="User results" item_label="users" %}
   </section>
 {% endblock %}

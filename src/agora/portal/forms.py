@@ -82,6 +82,35 @@ class GrantViewerForm(forms.Form):
             raise forms.ValidationError("Enter a valid canonical SOEID.") from error
 
 
+class UserSearchForm(forms.Form):
+    """Narrow the administrator list by an indexed canonical SOEID prefix."""
+
+    query = forms.CharField(
+        label="Find a user",
+        max_length=64,
+        required=False,
+        strip=False,
+        help_text="Enter the beginning of a SOEID.",
+        widget=forms.TextInput(
+            attrs={
+                "class": "portal-input",
+                "autocomplete": "off",
+                "autocapitalize": "characters",
+                "spellcheck": "false",
+            }
+        ),
+    )
+
+    def clean_query(self) -> str:
+        candidate = self.cleaned_data["query"]
+        if not candidate.strip(" \t\r\n\f\v"):
+            return ""
+        try:
+            return canonicalize_soeid(candidate)
+        except InvalidSoeid as error:
+            raise forms.ValidationError("Enter the beginning of a valid SOEID.") from error
+
+
 class RevisionUploadForm(forms.Form):
     """One HTML dashboard with optional CSV attachments."""
 

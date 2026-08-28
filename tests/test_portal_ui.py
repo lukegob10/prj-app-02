@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from django.contrib.staticfiles import finders
 from django.template import Context, Template
+from django.template.loader import render_to_string
 from django.test import Client
+
+from agora.portal.forms import GrantViewerForm, UserSearchForm
 
 PORTAL_CSS = (
     Path(__file__).resolve().parents[1]
@@ -18,6 +25,7 @@ PORTAL_CSS = (
     / "foundation.css"
 )
 BRAND_ROOT = PORTAL_CSS.parent / "brand"
+TEMPLATE_ROOT = PORTAL_CSS.parents[2] / "templates" / "portal"
 
 
 class DocumentParser(HTMLParser):
@@ -199,6 +207,9 @@ def test_foundation_css_declares_responsive_accessibility_and_component_contract
         ".portal-login-card",
         ".portal-page--workspace",
         ".portal-section--compact",
+        ".portal-pagination__link--next",
+        "overflow-x: auto",
+        "overscroll-behavior-inline: contain",
         "clip-path: inset(50%)",
         "height: 100dvh",
         ":focus-visible",
@@ -210,6 +221,242 @@ def test_foundation_css_declares_responsive_accessibility_and_component_contract
     assert ".portal-render-shell__back" not in css
     assert ".portal-brand__mark" not in css
     assert ".portal-home-hero__stats" not in css
+
+
+def test_cursor_pagination_uses_native_links_without_total_count_assumptions() -> None:
+    rendered = render_component(
+        "cursor-pagination",
+        {
+            "page": SimpleNamespace(
+                previous_url="/projects/?cursor=signed-previous",
+                next_url="/projects/?scope=shared&cursor=signed-next",
+            ),
+            "pagination_label": "Project results",
+            "item_label": "projects",
+        },
+    )
+    parser = DocumentParser()
+    parser.feed(rendered)
+
+    assert parser.attributes_for("nav") == [
+        {"class": "portal-pagination", "aria-label": "Project results"}
+    ]
+    assert parser.attributes_for("a") == [
+        {
+            "class": "portal-pagination__link portal-pagination__link--previous",
+            "href": "/projects/?cursor=signed-previous",
+            "rel": "prev",
+        },
+        {
+            "class": "portal-pagination__link portal-pagination__link--next",
+            "href": "/projects/?scope=shared&cursor=signed-next",
+            "rel": "next",
+        },
+    ]
+    normalized_text = " ".join(parser.text.split())
+    assert "Previous projects" in normalized_text
+    assert "Next projects" in normalized_text
+    assert "Page" not in normalized_text
+    assert "total" not in normalized_text.lower()
+    assert "scope=shared&amp;cursor=signed-next" in rendered
+
+
+def test_cursor_pagination_is_omitted_when_there_is_no_navigation() -> None:
+    rendered = render_component(
+        "cursor-pagination",
+        {"page": SimpleNamespace(previous_url=None, next_url=None)},
+    )
+
+    assert rendered.strip() == ""
+
+
+def test_empty_cursor_page_keeps_safe_back_navigation() -> None:
+    rendered = render_to_string(
+        "portal/projects/list.html",
+        {
+            "active_scope": "mine",
+            "projects": (),
+            "project_page": SimpleNamespace(
+                previous_url="/projects/?cursor=signed-previous",
+                next_url=None,
+            ),
+            "mine_url": "/projects/",
+            "shared_url": "/projects/?scope=shared",
+        },
+    )
+    parser = DocumentParser()
+    parser.feed(rendered)
+
+    assert "No projects in these results" in parser.text
+    assert "The project list changed." in parser.text
+    assert any(
+        attributes.get("href") == "/projects/?cursor=signed-previous"
+        for attributes in parser.attributes_for("a")
+    )
+    assert "Previous projects" in " ".join(parser.text.split())
+
+
+def test_empty_revision_and_access_pages_keep_safe_back_navigation() -> None:
+    project_id = UUID("00000000-0000-0000-0000-000000000123")
+    project = SimpleNamespace(
+        id=project_id,
+        name="Bounded project",
+        description="",
+        latest_revision=None,
+        latest_revision_id=None,
+        published_revision=None,
+        published_revision_id=None,
+        updated_at=datetime(2026, 8, 28, tzinfo=UTC),
+        get_state_display=lambda: "Draft",
+    )
+    revision_url = f"/projects/{project_id}/?cursor=signed-previous"
+    detail = render_to_string(
+        "portal/projects/detail.html",
+        {
+            "project": project,
+            "is_owner": True,
+            "revisions": (),
+            "revision_page": SimpleNamespace(previous_url=revision_url, next_url=None),
+        },
+    )
+    assert "No revisions in these results" in detail
+    assert revision_url in detail
+
+    active_url = f"/projects/{project_id}/access/?active_cursor=signed-previous"
+    history_url = f"/projects/{project_id}/access/?history_cursor=signed-previous"
+    access = render_to_string(
+        "portal/projects/access.html",
+        {
+            "project": project,
+            "owner_soeid": "PROJECT.OWNER",
+            "form": GrantViewerForm(),
+            "grant_url": f"/projects/{project_id}/access/",
+            "active_grants": (),
+            "active_grants_page": SimpleNamespace(
+                previous_url=active_url,
+                next_url=None,
+            ),
+            "grant_history": (),
+            "grant_history_page": SimpleNamespace(
+                previous_url=history_url,
+                next_url=None,
+            ),
+        },
+    )
+    assert "No Viewer grants in these results" in access
+    assert "No revoked grants in these results" in access
+    assert active_url in access
+    assert history_url in access
+
+
+def test_bounded_list_templates_do_not_reconstruct_cursors_or_page_totals() -> None:
+    templates = (
+        TEMPLATE_ROOT / "admin" / "user_list.html",
+        TEMPLATE_ROOT / "projects" / "list.html",
+        TEMPLATE_ROOT / "projects" / "detail.html",
+        TEMPLATE_ROOT / "projects" / "access.html",
+    )
+    forbidden_fragments = (
+        ".paginator",
+        ".num_pages",
+        ".previous_page_number",
+        ".next_page_number",
+        ".has_other_pages",
+        "?page=",
+        "active_cursor",
+        "history_cursor",
+        "<iframe",
+        "<script",
+        "srcdoc",
+        "|safe",
+    )
+
+    for template in templates:
+        source = template.read_text(encoding="utf-8")
+        for fragment in forbidden_fragments:
+            assert fragment not in source, f"{template.name} contains {fragment}"
+
+    project_list = templates[1].read_text(encoding="utf-8")
+    project_detail = templates[2].read_text(encoding="utf-8")
+    project_access = templates[3].read_text(encoding="utf-8")
+    assert "mine_count" not in project_list
+    assert "shared_count" not in project_list
+    assert "viewer_count" not in project_detail
+    assert "viewer_count" not in project_access
+    assert 'method="post" action="{{ grant_url }}"' in project_access
+
+
+def test_user_search_is_a_narrow_native_get_form() -> None:
+    source = (TEMPLATE_ROOT / "admin" / "user_list.html").read_text(encoding="utf-8")
+
+    assert 'role="search" method="get" action="{{ search_url }}"' in source
+    assert 'for="user-search"' in source
+    assert 'id="user-search"' in source
+    assert 'name="query"' in source
+    assert 'type="search"' in source
+    assert "search_form.query.value|default_if_none:''" in source
+    assert 'aria-describedby="user-search-help{% if search_form.query.errors %} ' in source
+    assert 'aria-invalid="true"' in source
+    assert 'id="user-search-error" role="alert"' in source
+    assert 'href="{{ clear_search_url }}"' in source
+    assert "Enter the start of a SOEID." in source
+    assert "Fix the search above." in source
+    assert "|safe" not in source
+
+
+def test_invalid_user_search_is_escaped_and_announced_without_broad_results() -> None:
+    search_form = UserSearchForm({"query": "<script>"})
+    assert search_form.is_valid() is False
+
+    rendered = render_to_string(
+        "portal/admin/user_list.html",
+        {
+            "users": (),
+            "user_page": SimpleNamespace(previous_url=None, next_url=None),
+            "search_form": search_form,
+            "search_query": "",
+            "search_url": "/admin/users/",
+            "clear_search_url": "/admin/users/",
+        },
+    )
+    parser = DocumentParser()
+    parser.feed(rendered)
+    search_input = next(
+        attributes
+        for attributes in parser.attributes_for("input")
+        if attributes.get("id") == "user-search"
+    )
+
+    assert search_input.get("value") == "<script>"
+    assert search_input.get("aria-invalid") == "true"
+    assert search_input.get("aria-describedby") == "user-search-help user-search-error"
+    assert "&lt;script&gt;" in rendered
+    assert "<script>" not in rendered
+    assert any(
+        attributes.get("id") == "user-search-error" and attributes.get("role") == "alert"
+        for attributes in parser.attributes_for("div")
+    )
+    assert "Fix the search above." in parser.text
+    assert "No users have been provisioned." not in parser.text
+
+
+def test_wide_data_tables_are_named_keyboard_scroll_regions() -> None:
+    templates = (
+        TEMPLATE_ROOT / "home.html",
+        TEMPLATE_ROOT / "admin" / "user_list.html",
+        TEMPLATE_ROOT / "projects" / "list.html",
+        TEMPLATE_ROOT / "projects" / "detail.html",
+        TEMPLATE_ROOT / "projects" / "access.html",
+    )
+
+    for template in templates:
+        source = template.read_text(encoding="utf-8")
+        wrapper_count = source.count('class="portal-table-wrap"')
+        assert wrapper_count > 0
+        assert source.count('class="portal-table-wrap" role="region"') == wrapper_count
+        assert source.count('tabindex="0"') >= wrapper_count
+        for labelled_by in re.findall(r'aria-labelledby="([^"]+-caption)"', source):
+            assert f'id="{labelled_by}"' in source
 
 
 def test_reusable_components_render_safe_semantic_markup() -> None:

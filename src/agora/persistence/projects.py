@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Prefetch, QuerySet
+from django.db.models import Exists, OuterRef, Prefetch, QuerySet, prefetch_related_objects
 
 from agora.persistence.models import Artifact, AuditEvent, Dashboard, Revision, User, ViewerGrant
 from agora.persistence.querying import get_one_or_none
@@ -21,7 +22,7 @@ def owned_projects(owner_id: UUID) -> QuerySet[Dashboard]:
         Dashboard.objects.filter(owner_id=owner_id, owner__is_active=True)
         .exclude(state=Dashboard.State.DELETED)
         .select_related("latest_revision", "published_revision")
-        .order_by("-updated_at", "name", "id")
+        .order_by("-updated_at", "id")
     )
 
 
@@ -40,7 +41,20 @@ def shared_projects(viewer_id: UUID) -> QuerySet[Dashboard]:
         )
         .filter(Exists(active_grant))
         .select_related("owner", "published_revision")
-        .order_by("-updated_at", "name", "id")
+        .only(
+            "id",
+            "owner",
+            "name",
+            "description",
+            "state",
+            "published_revision",
+            "updated_at",
+            "owner__id",
+            "owner__soeid",
+            "published_revision__id",
+            "published_revision__number",
+        )
+        .order_by("-updated_at", "id")
     )
 
 
@@ -59,12 +73,7 @@ def manageable_project(project_id: UUID, owner_id: UUID) -> Dashboard | None:
 
 
 def project_revisions(project_id: UUID, owner_id: UUID) -> QuerySet[Revision]:
-    """Return an owner's revisions lazily, newest first.
-
-    Artifact metadata is prefetched lazily with the queryset. Callers must apply a bounded slice
-    (or paginator page) before evaluation so the prefetch follows that page rather than the full
-    retained revision history.
-    """
+    """Return an owner's revisions lazily, newest first, without related history expansion."""
     return (
         Revision.objects.filter(
             dashboard_id=project_id,
@@ -72,14 +81,25 @@ def project_revisions(project_id: UUID, owner_id: UUID) -> QuerySet[Revision]:
             dashboard__owner__is_active=True,
         )
         .exclude(dashboard__state=Dashboard.State.DELETED)
-        .select_related("created_by")
-        .prefetch_related(
-            Prefetch(
-                "artifacts",
-                queryset=Artifact.objects.order_by("kind", "logical_name", "id"),
-            )
-        )
         .order_by("-number", "-created_at", "-id")
+    )
+
+
+def prefetch_revision_artifacts(revisions: Sequence[Revision]) -> None:
+    """Populate artifacts for an already-bounded revision collection in one query."""
+
+    prefetch_related_objects(
+        revisions,
+        Prefetch(
+            "artifacts",
+            queryset=Artifact.objects.only(
+                "id",
+                "revision",
+                "kind",
+                "logical_name",
+                "byte_size",
+            ).order_by("kind", "logical_name", "id"),
+        ),
     )
 
 
@@ -94,6 +114,19 @@ def project_active_grants(project_id: UUID, owner_id: UUID) -> QuerySet[ViewerGr
         )
         .exclude(dashboard__state=Dashboard.State.DELETED)
         .select_related("viewer", "created_by")
+        .only(
+            "id",
+            "dashboard",
+            "viewer",
+            "created_by",
+            "created_at",
+            "revoked_at",
+            "viewer__id",
+            "viewer__soeid",
+            "viewer__is_active",
+            "created_by__id",
+            "created_by__soeid",
+        )
         .order_by("-created_at", "-id")
     )
 
@@ -109,7 +142,52 @@ def project_grant_history(project_id: UUID, owner_id: UUID) -> QuerySet[ViewerGr
         )
         .exclude(dashboard__state=Dashboard.State.DELETED)
         .select_related("viewer", "created_by", "revoked_by")
+        .only(
+            "id",
+            "dashboard",
+            "viewer",
+            "created_by",
+            "created_at",
+            "revoked_at",
+            "revoked_by",
+            "viewer__id",
+            "viewer__soeid",
+            "viewer__is_active",
+            "created_by__id",
+            "created_by__soeid",
+            "revoked_by__id",
+            "revoked_by__soeid",
+        )
         .order_by("-revoked_at", "-id")
+    )
+
+
+def project_grant_epoch(
+    project_id: UUID,
+    owner_id: UUID,
+    grant_id: UUID,
+) -> ViewerGrant | None:
+    """Resolve one retained grant epoch through the same generic owner boundary."""
+
+    return (
+        ViewerGrant.objects.filter(
+            id=grant_id,
+            dashboard_id=project_id,
+            dashboard__owner_id=owner_id,
+            dashboard__owner__is_active=True,
+        )
+        .exclude(dashboard__state=Dashboard.State.DELETED)
+        .select_related("viewer")
+        .only(
+            "id",
+            "dashboard",
+            "viewer",
+            "revoked_at",
+            "viewer__id",
+            "viewer__soeid",
+            "viewer__is_active",
+        )
+        .first()
     )
 
 
@@ -133,12 +211,7 @@ def visible_project(project_id: UUID, viewer_id: UUID) -> tuple[Dashboard, bool]
     owned = manageable_project(project_id, viewer_id)
     if owned is not None:
         return owned, True
-    shared = (
-        shared_projects(viewer_id)
-        .filter(id=project_id)
-        .prefetch_related("published_revision__artifacts")
-        .first()
-    )
+    shared = shared_projects(viewer_id).filter(id=project_id).first()
     if shared is None:
         return None
     return shared, False
@@ -167,8 +240,10 @@ __all__ = [
     "create_project",
     "manageable_project",
     "owned_projects",
+    "prefetch_revision_artifacts",
     "project_active_grants",
     "project_effective_viewer_count",
+    "project_grant_epoch",
     "project_grant_history",
     "project_revisions",
     "shared_projects",

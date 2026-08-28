@@ -10,11 +10,14 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from agora.persistence.models import Dashboard, Revision, User, ViewerGrant
+from agora.persistence.pagination import CursorColumn, CursorValueKind, paginate_keyset
 from agora.persistence.projects import (
     manageable_project,
     owned_projects,
+    prefetch_revision_artifacts,
     project_active_grants,
     project_effective_viewer_count,
+    project_grant_epoch,
     project_grant_history,
     project_revisions,
     shared_projects,
@@ -123,17 +126,24 @@ def test_revision_query_is_lazy_newest_first_and_artifact_prefetch_is_caller_bou
     second = publish(project, owner, number=2)
 
     revisions = project_revisions(project.id, owner.id)
-    assert getattr(revisions, "_prefetch_related_lookups", ())
     with CaptureQueriesContext(connection) as queries:
         page = list(revisions[:1])
-    assert len(queries) == 2
+    assert len(queries) == 1
     assert [revision.id for revision in page] == [second.id]
     assert first.id != second.id
 
     with CaptureQueriesContext(connection) as queries:
-        bounded_with_artifacts = list(revisions[1:2])
+        prefetch_revision_artifacts(page)
+        bounded_with_artifacts = page
+        list(bounded_with_artifacts[0].artifacts.all())
+    assert len(queries) == 1
+    assert [revision.number for revision in bounded_with_artifacts] == [2]
+
+    with CaptureQueriesContext(connection) as queries:
+        older_page = list(revisions[1:2])
+        prefetch_revision_artifacts(older_page)
     assert len(queries) == 2
-    assert [revision.number for revision in bounded_with_artifacts] == [1]
+    assert [revision.number for revision in older_page] == [1]
 
 
 def test_active_and_history_queries_select_related_and_have_stable_epoch_order(
@@ -177,6 +187,8 @@ def test_active_and_history_queries_select_related_and_have_stable_epoch_order(
 
     assert list(project_active_grants(project.id, viewer.id)) == []
     assert list(project_grant_history(project.id, viewer.id)) == []
+    assert project_grant_epoch(project.id, owner.id, revoked_old.id) == revoked_old
+    assert project_grant_epoch(project.id, viewer.id, revoked_old.id) is None
 
 
 def test_shared_with_me_is_duplicate_free_after_revoke_and_regrant(
@@ -231,3 +243,41 @@ def test_owned_and_shared_project_lists_are_deterministic_and_scope_safe(
     )
     assert [item.id for item in shared_projects(viewer.id)] == [shared.id]
     assert visible_project(shared.id, owner.id) is None
+
+
+def test_owned_project_keyset_is_result_bounded_and_query_constant(owner: User) -> None:
+    projects = [dashboard(owner, f"Bounded {number:02d}") for number in range(27)]
+    tied_at = timezone.now() - timedelta(days=2)
+    Dashboard.objects.filter(id__in=[project.id for project in projects]).update(updated_at=tied_at)
+    columns = (
+        CursorColumn("updated_at", CursorValueKind.DATETIME, descending=True),
+        CursorColumn("id", CursorValueKind.UUID),
+    )
+
+    with CaptureQueriesContext(connection) as first_queries:
+        first = paginate_keyset(
+            owned_projects(owner.id),
+            columns=columns,
+            namespace="test-owned-projects",
+            context=str(owner.id),
+        )
+    assert len(first_queries) == 1
+    assert len(first) == 25
+    assert first.next_cursor is not None
+    assert [project.id for project in first] == sorted(
+        [project.id for project in projects], key=str
+    )[:25]
+    assert "COUNT(" not in first_queries[0]["sql"].upper()
+    assert " OFFSET " not in first_queries[0]["sql"].upper()
+
+    with CaptureQueriesContext(connection) as next_queries:
+        second = paginate_keyset(
+            owned_projects(owner.id),
+            columns=columns,
+            namespace="test-owned-projects",
+            context=str(owner.id),
+            cursor=first.next_cursor,
+        )
+    assert len(next_queries) == len(first_queries)
+    assert len(second) == 2
+    assert not ({project.id for project in first} & {project.id for project in second})

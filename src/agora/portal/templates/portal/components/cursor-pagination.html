@@ -1,0 +1,18 @@
+{% if page.previous_url or page.next_url %}
+  <nav class="portal-pagination" aria-label="{{ pagination_label|default:'Results' }}">
+    {% if page.previous_url %}
+      <a
+        class="portal-pagination__link portal-pagination__link--previous"
+        href="{{ page.previous_url }}"
+        rel="prev"
+      >Previous<span class="portal-visually-hidden"> {{ item_label|default:'results' }}</span></a>
+    {% endif %}
+    {% if page.next_url %}
+      <a
+        class="portal-pagination__link portal-pagination__link--next"
+        href="{{ page.next_url }}"
+        rel="next"
+      >Next<span class="portal-visually-hidden"> {{ item_label|default:'results' }}</span></a>
+    {% endif %}
+  </nav>
+{% endif %}

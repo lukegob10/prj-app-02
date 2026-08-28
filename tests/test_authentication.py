@@ -11,6 +11,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import DatabaseError, IntegrityError, close_old_connections, connection, transaction
 from django.test import Client, RequestFactory, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -730,6 +731,113 @@ def test_admin_ui_has_privilege_boundary_and_explicit_mutations(
     assert replacement.encode() not in reset.content
     target.refresh_from_db()
     assert target.check_password(replacement)
+
+
+def test_admin_user_list_is_keyset_bounded_and_query_constant(
+    admin_identity: tuple[User, str],
+) -> None:
+    admin, password = admin_identity
+    client = Client()
+    login_client(client, admin.soeid, password)
+
+    with CaptureQueriesContext(connection) as baseline_queries:
+        baseline = client.get(reverse("admin-user-list"), HTTP_HOST=PORTAL_HOST)
+    assert baseline.status_code == 200
+    assert len(baseline_queries) <= 3
+
+    for number in range(30):
+        User.objects.create_user(f"DIRECTORY.USER{number:02d}")
+
+    with CaptureQueriesContext(connection) as populated_queries:
+        populated = client.get(reverse("admin-user-list"), HTTP_HOST=PORTAL_HOST)
+    assert populated.status_code == 200
+    assert len(populated.context["users"]) == 25
+    assert populated.context["user_page"].next_url is not None
+    assert len(populated_queries) == len(baseline_queries)
+    assert len(populated_queries) <= 3
+    assert all("COUNT(" not in query["sql"].upper() for query in populated_queries)
+    assert all(" OFFSET " not in query["sql"].upper() for query in populated_queries)
+
+    with CaptureQueriesContext(connection) as next_queries:
+        next_page = client.get(
+            populated.context["user_page"].next_url,
+            HTTP_HOST=PORTAL_HOST,
+        )
+    assert next_page.status_code == 200
+    assert len(next_queries) == len(populated_queries)
+    assert all("COUNT(" not in query["sql"].upper() for query in next_queries)
+    assert all(" OFFSET " not in query["sql"].upper() for query in next_queries)
+
+
+def test_admin_user_search_is_canonical_prefix_only_and_invalid_input_is_bounded(
+    admin_identity: tuple[User, str],
+) -> None:
+    admin, password = admin_identity
+    User.objects.create_user("SEARCH.MATCH.A")
+    User.objects.create_user("SEARCH.MATCH.B")
+    User.objects.create_user("OTHER.USER")
+    client = Client()
+    login_client(client, admin.soeid, password)
+
+    with CaptureQueriesContext(connection) as search_queries:
+        response = client.get(
+            reverse("admin-user-list"),
+            {"query": "  search.match  "},
+            HTTP_HOST=PORTAL_HOST,
+        )
+    assert response.status_code == 200
+    assert response.context["search_query"] == "SEARCH.MATCH"
+    assert b"SEARCH.MATCH.A" in response.content
+    assert b"SEARCH.MATCH.B" in response.content
+    assert b"OTHER.USER" not in response.content
+    assert len(search_queries) <= 3
+    assert any("LIKE" in query["sql"].upper() for query in search_queries)
+
+    oversized = "A" * 10_000
+    with CaptureQueriesContext(connection) as invalid_queries:
+        invalid = client.get(
+            reverse("admin-user-list"),
+            {"query": oversized},
+            HTTP_HOST=PORTAL_HOST,
+        )
+    assert invalid.status_code == 200
+    assert invalid.context["search_form"].errors
+    assert invalid.context["users"] == ()
+    assert oversized.encode() not in invalid.content
+    # Session and authenticated-user resolution remain; the directory itself is not queried.
+    assert len(invalid_queries) <= 2
+
+
+def test_admin_user_cursor_rejects_tampering_and_search_context_reuse(
+    admin_identity: tuple[User, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("agora.portal.views.USER_PAGE_SIZE", 1)
+    admin, password = admin_identity
+    User.objects.create_user("CURSOR.USER")
+    client = Client()
+    login_client(client, admin.soeid, password)
+
+    first = client.get(reverse("admin-user-list"), HTTP_HOST=PORTAL_HOST)
+    cursor = first.context["user_page"].next_cursor
+    assert cursor is not None
+    tampered = f"{cursor[:-1]}{'A' if cursor[-1] != 'A' else 'B'}"
+    assert (
+        client.get(
+            reverse("admin-user-list"),
+            {"cursor": tampered},
+            HTTP_HOST=PORTAL_HOST,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            reverse("admin-user-list"),
+            {"query": "CURSOR", "cursor": cursor},
+            HTTP_HOST=PORTAL_HOST,
+        ).status_code
+        == 404
+    )
 
 
 def test_unauthenticated_admin_redirect_has_a_safe_local_next() -> None:

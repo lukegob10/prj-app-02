@@ -35,9 +35,9 @@
               <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">View all</a>
             </div>
             {% if recent_owned %}
-              <div class="portal-table-wrap">
+              <div class="portal-table-wrap" role="region" aria-labelledby="recent-projects-caption" tabindex="0">
                 <table class="portal-table">
-                  <caption>Your most recently updated projects</caption>
+                  <caption id="recent-projects-caption">Your most recently updated projects</caption>
                   <thead>
                     <tr><th scope="col">Project</th><th scope="col">Status</th><th scope="col">Latest revision</th><th scope="col">Updated</th></tr>
                   </thead>

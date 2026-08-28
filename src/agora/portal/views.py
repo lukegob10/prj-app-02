@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.conf import settings
@@ -11,9 +12,9 @@ from django.contrib import messages
 from django.contrib.auth import REDIRECT_FIELD_NAME, login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.files.uploadedfile import UploadedFile
-from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_POST
 
 from agora.persistence.access import (
@@ -38,18 +39,27 @@ from agora.persistence.authentication import (
     reset_user_password,
 )
 from agora.persistence.models import Dashboard, Revision, User
+from agora.persistence.pagination import (
+    CursorColumn,
+    CursorPage,
+    CursorValueKind,
+    InvalidCursor,
+    paginate_keyset,
+)
 from agora.persistence.projects import (
     ProjectOwnerUnavailable,
     create_project,
     manageable_project,
     owned_projects,
+    prefetch_revision_artifacts,
     project_active_grants,
-    project_effective_viewer_count,
+    project_grant_epoch,
     project_grant_history,
     project_revisions,
     shared_projects,
     visible_project,
 )
+from agora.persistence.querying import administrator_user_list
 from agora.persistence.services import RevisionCreationError
 from agora.persistence.storage import ArtifactStorageError, FilesystemArtifactStorage
 from agora.persistence.uploads import create_upload_revision
@@ -61,7 +71,7 @@ from agora.rendering.authorization import (
     issue_published_view,
 )
 from agora.rendering.security import portal_content_iframe_attributes
-from agora.uploads import UploadIssueCode, UploadPart, UploadRejected
+from agora.uploads import UploadIssueCode, UploadLimits, UploadPart, UploadRejected
 
 from .forms import (
     ConfirmActionForm,
@@ -71,6 +81,7 @@ from .forms import (
     ProvisionUserForm,
     ResetPasswordForm,
     RevisionUploadForm,
+    UserSearchForm,
 )
 from .security import administrator_required, safe_next_url
 
@@ -104,9 +115,22 @@ UPLOAD_MESSAGES = {
     ),
 }
 
+PROJECT_CURSOR_COLUMNS = (
+    CursorColumn("updated_at", CursorValueKind.DATETIME, descending=True),
+    CursorColumn("id", CursorValueKind.UUID),
+)
+REVISION_CURSOR_COLUMNS = (CursorColumn("number", CursorValueKind.INTEGER, descending=True),)
+ACTIVE_GRANT_CURSOR_COLUMNS = (CursorColumn("viewer__soeid", CursorValueKind.TEXT),)
+GRANT_HISTORY_CURSOR_COLUMNS = (
+    CursorColumn("revoked_at", CursorValueKind.DATETIME, descending=True),
+    CursorColumn("id", CursorValueKind.UUID, descending=True),
+)
+USER_CURSOR_COLUMNS = (CursorColumn("soeid", CursorValueKind.TEXT),)
 PROJECT_PAGE_SIZE = 25
-REVISION_PAGE_SIZE = 20
+REVISION_PAGE_SIZE = 25
 GRANT_PAGE_SIZE = 25
+USER_PAGE_SIZE = 25
+RENDER_ARTIFACT_LIMIT = UploadLimits().max_files
 
 GRANT_REJECTION_MESSAGES = {
     GrantRejection.INVALID_SOEID: "Enter a valid canonical SOEID.",
@@ -150,23 +174,34 @@ def project_list(request: HttpRequest) -> HttpResponse:
     user = cast(User, request.user)
     scope = request.GET.get("scope")
     active_scope = "shared" if scope == "shared" else "mine"
-    mine_paginator = Paginator(owned_projects(user.id), PROJECT_PAGE_SIZE)
-    shared_paginator = Paginator(shared_projects(user.id), PROJECT_PAGE_SIZE)
-    page_number = request.GET.get("page")
-    project_page = (
-        shared_paginator.get_page(page_number)
-        if active_scope == "shared"
-        else mine_paginator.get_page(page_number)
+    projects = shared_projects(user.id) if active_scope == "shared" else owned_projects(user.id)
+    try:
+        project_page = paginate_keyset(
+            projects,
+            columns=PROJECT_CURSOR_COLUMNS,
+            namespace=f"project-list-{active_scope}",
+            context=str(user.id),
+            cursor=request.GET.get("cursor"),
+            page_size=PROJECT_PAGE_SIZE,
+        )
+    except InvalidCursor:
+        return render(request, "portal/not_found.html", status=404)
+    list_url = reverse("project-list")
+    scope_query = {"scope": "shared"} if active_scope == "shared" else {}
+    project_page = project_page.with_urls(
+        base_url=list_url,
+        cursor_parameter="cursor",
+        preserved_query=scope_query,
     )
     return render(
         request,
         "portal/projects/list.html",
         {
             "active_scope": active_scope,
-            "projects": project_page,
+            "projects": project_page.items,
             "project_page": project_page,
-            "mine_count": mine_paginator.count,
-            "shared_count": shared_paginator.count,
+            "mine_url": list_url,
+            "shared_url": f"{list_url}?{urlencode({'scope': 'shared'})}",
         },
     )
 
@@ -199,14 +234,28 @@ def project_detail(request: HttpRequest, project_id: UUID) -> HttpResponse:
     if resolved is None:
         return render(request, "portal/not_found.html", status=404)
     project, is_owner = resolved
-    revisions = (
-        Paginator(
-            project_revisions(project.id, user.id).order_by("-number", "-created_at", "-id"),
-            REVISION_PAGE_SIZE,
-        ).get_page(request.GET.get("page"))
-        if is_owner
-        else []
-    )
+    revision_page: CursorPage[Revision] | None = None
+    revisions: tuple[Revision, ...] = ()
+    if is_owner:
+        try:
+            revision_page = paginate_keyset(
+                project_revisions(project.id, user.id),
+                columns=REVISION_CURSOR_COLUMNS,
+                namespace="project-revisions",
+                context=f"{project.id}:{user.id}",
+                cursor=request.GET.get("cursor"),
+                page_size=REVISION_PAGE_SIZE,
+            )
+        except InvalidCursor:
+            return render(request, "portal/not_found.html", status=404)
+        prefetch_revision_artifacts(revision_page.items)
+        revision_page = revision_page.with_urls(
+            base_url=reverse("project-detail", args=[project.id]),
+            cursor_parameter="cursor",
+        )
+        revisions = revision_page.items
+    elif request.GET.get("cursor"):
+        return render(request, "portal/not_found.html", status=404)
     return render(
         request,
         "portal/projects/detail.html",
@@ -214,7 +263,7 @@ def project_detail(request: HttpRequest, project_id: UUID) -> HttpResponse:
             "project": project,
             "is_owner": is_owner,
             "revisions": revisions,
-            "viewer_count": project_effective_viewer_count(project.id, user.id) if is_owner else 0,
+            "revision_page": revision_page,
         },
     )
 
@@ -227,6 +276,7 @@ def project_access(request: HttpRequest, project_id: UUID) -> HttpResponse:
     project = manageable_project(project_id, user.id)
     if project is None:
         return render(request, "portal/not_found.html", status=404)
+    access_url = reverse("project-access", args=[project.id])
 
     form = GrantViewerForm(request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
@@ -251,13 +301,37 @@ def project_access(request: HttpRequest, project_id: UUID) -> HttpResponse:
         )
         form.fields["soeid"].widget.attrs["aria-invalid"] = "true"
 
-    active_grants = project_active_grants(project.id, user.id).order_by(
-        "viewer__soeid", "created_at", "id"
+    active_cursor = request.GET.get("active_cursor")
+    history_cursor = request.GET.get("history_cursor")
+    try:
+        active_page = paginate_keyset(
+            project_active_grants(project.id, user.id),
+            columns=ACTIVE_GRANT_CURSOR_COLUMNS,
+            namespace="project-active-grants",
+            context=f"{project.id}:{user.id}",
+            cursor=active_cursor,
+            page_size=GRANT_PAGE_SIZE,
+        )
+        history_page = paginate_keyset(
+            project_grant_history(project.id, user.id),
+            columns=GRANT_HISTORY_CURSOR_COLUMNS,
+            namespace="project-grant-history",
+            context=f"{project.id}:{user.id}",
+            cursor=history_cursor,
+            page_size=GRANT_PAGE_SIZE,
+        )
+    except InvalidCursor:
+        return render(request, "portal/not_found.html", status=404)
+
+    active_page = active_page.with_urls(
+        base_url=access_url,
+        cursor_parameter="active_cursor",
+        preserved_query={"history_cursor": history_cursor or ""},
     )
-    grant_history = project_grant_history(project.id, user.id).order_by("-revoked_at", "-id")
-    active_page = Paginator(active_grants, GRANT_PAGE_SIZE).get_page(request.GET.get("page"))
-    history_page = Paginator(grant_history, GRANT_PAGE_SIZE).get_page(
-        request.GET.get("history_page")
+    history_page = history_page.with_urls(
+        base_url=access_url,
+        cursor_parameter="history_cursor",
+        preserved_query={"active_cursor": active_cursor or ""},
     )
     return render(
         request,
@@ -266,11 +340,11 @@ def project_access(request: HttpRequest, project_id: UUID) -> HttpResponse:
             "project": project,
             "owner_soeid": user.soeid,
             "form": form,
-            "active_grants": active_page,
+            "grant_url": access_url,
+            "active_grants": active_page.items,
             "active_grants_page": active_page,
-            "grant_history": history_page,
+            "grant_history": history_page.items,
             "grant_history_page": history_page,
-            "viewer_count": project_effective_viewer_count(project.id, user.id),
         },
     )
 
@@ -306,10 +380,7 @@ def project_grant_revoke(
         form.fields["confirm"].widget.attrs["aria-describedby"] = "revoke-confirm-error"
         form.fields["confirm"].widget.attrs["aria-invalid"] = "true"
 
-    grant = project_active_grants(project.id, user.id).filter(id=grant_id).first()
-    if grant is None:
-        # Retain a safe retry path after another request has already closed the epoch.
-        grant = project_grant_history(project.id, user.id).filter(id=grant_id).first()
+    grant = project_grant_epoch(project.id, user.id, grant_id)
     if grant is None:
         return render(request, "portal/not_found.html", status=404)
 
@@ -405,7 +476,15 @@ def _render_dashboard_shell(
         {
             "project": project,
             "revision": revision,
-            "artifacts": list(revision.artifacts.all()),
+            "artifacts": list(
+                revision.artifacts.only(
+                    "id",
+                    "revision",
+                    "kind",
+                    "logical_name",
+                    "byte_size",
+                ).order_by("kind", "logical_name", "id")[:RENDER_ARTIFACT_LIMIT]
+            ),
             "is_preview": is_preview,
             "expires_at": credential.expires_at,
             "iframe_src": iframe["src"],
@@ -534,11 +613,49 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 @administrator_required
 @require_http_methods(["GET"])
 def user_list(request: HttpRequest) -> HttpResponse:
-    """List identity status without exposing passwords or internal identifiers."""
-    users = User.objects.only("id", "soeid", "password", "is_active", "is_administrator").order_by(
-        "soeid"
+    """List a bounded identity page, optionally narrowed by canonical SOEID prefix."""
+
+    user = cast(User, request.user)
+    search_form = UserSearchForm({"query": str(request.GET.get("query", ""))[:65]})
+    cursor = request.GET.get("cursor")
+    user_page: CursorPage[User]
+    if not search_form.is_valid():
+        if cursor:
+            return render(request, "portal/not_found.html", status=404)
+        user_page = CursorPage(items=(), previous_cursor=None, next_cursor=None)
+        search_query = ""
+    else:
+        search_query = cast(str, search_form.cleaned_data["query"])
+        try:
+            user_page = paginate_keyset(
+                administrator_user_list(soeid_prefix=search_query),
+                columns=USER_CURSOR_COLUMNS,
+                namespace="administrator-user-list",
+                context=f"{user.id}:{search_query}",
+                cursor=cursor,
+                page_size=USER_PAGE_SIZE,
+            )
+        except InvalidCursor:
+            return render(request, "portal/not_found.html", status=404)
+        user_page = user_page.with_urls(
+            base_url=reverse("admin-user-list"),
+            cursor_parameter="cursor",
+            preserved_query={"query": search_query},
+        )
+
+    list_url = reverse("admin-user-list")
+    return render(
+        request,
+        "portal/admin/user_list.html",
+        {
+            "users": user_page.items,
+            "user_page": user_page,
+            "search_form": search_form,
+            "search_query": search_query,
+            "search_url": list_url,
+            "clear_search_url": list_url,
+        },
     )
-    return render(request, "portal/admin/user_list.html", {"users": users})
 
 
 @administrator_required

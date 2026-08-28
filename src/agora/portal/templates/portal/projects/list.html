@@ -8,8 +8,8 @@
   {% include "portal/components/page-header.html" with eyebrow="Dashboard workspace" title="Projects" intro="Keep your own dashboard work separate from projects shared with your SOEID." action_url=create_project_url action_label="Create new project" %}
 
   <nav class="portal-tabs" aria-label="Project scope">
-    <a class="portal-tabs__link{% if active_scope == 'mine' %} portal-tabs__link--current{% endif %}" href="{% url 'project-list' %}"{% if active_scope == 'mine' %} aria-current="page"{% endif %}>My projects <span>{{ mine_count }}</span></a>
-    <a class="portal-tabs__link{% if active_scope == 'shared' %} portal-tabs__link--current{% endif %}" href="{% url 'project-list' %}?scope=shared"{% if active_scope == 'shared' %} aria-current="page"{% endif %}>Shared with me <span>{{ shared_count }}</span></a>
+    <a class="portal-tabs__link{% if active_scope == 'mine' %} portal-tabs__link--current{% endif %}" href="{{ mine_url }}"{% if active_scope == 'mine' %} aria-current="page"{% endif %}>My projects</a>
+    <a class="portal-tabs__link{% if active_scope == 'shared' %} portal-tabs__link--current{% endif %}" href="{{ shared_url }}"{% if active_scope == 'shared' %} aria-current="page"{% endif %}>Shared with me</a>
   </nav>
 
   <section class="portal-section" aria-labelledby="project-list-heading">
@@ -18,9 +18,9 @@
       <h2 id="project-list-heading">{% if active_scope == "shared" %}Shared with me{% else %}My projects{% endif %}</h2>
     </div>
     {% if projects %}
-      <div class="portal-table-wrap">
+      <div class="portal-table-wrap" role="region" aria-labelledby="project-table-caption" tabindex="0">
         <table class="portal-table">
-          <caption>{% if active_scope == "shared" %}Projects currently shared with your SOEID{% else %}Projects owned by your SOEID{% endif %}</caption>
+          <caption id="project-table-caption">{% if active_scope == "shared" %}Projects currently shared with your SOEID{% else %}Projects owned by your SOEID{% endif %}</caption>
           <thead>
             <tr><th scope="col">Project</th>{% if active_scope == "shared" %}<th scope="col">Owner</th>{% endif %}<th scope="col">Status</th><th scope="col">Revision</th><th scope="col"><span class="portal-visually-hidden">Action</span></th></tr>
           </thead>
@@ -44,17 +44,13 @@
           </tbody>
         </table>
       </div>
-      {% if project_page.has_other_pages %}
-        <nav class="portal-pagination" aria-label="Project pages">
-          {% if project_page.has_previous %}<a class="portal-pagination__link" href="{% url 'project-list' %}?{% if active_scope == 'shared' %}scope=shared&amp;{% endif %}page={{ project_page.previous_page_number }}">Previous</a>{% endif %}
-          <span class="portal-pagination__status" aria-current="page">Page {{ project_page.number }} of {{ project_page.paginator.num_pages }}</span>
-          {% if project_page.has_next %}<a class="portal-pagination__link" href="{% url 'project-list' %}?{% if active_scope == 'shared' %}scope=shared&amp;{% endif %}page={{ project_page.next_page_number }}">Next</a>{% endif %}
-        </nav>
-      {% endif %}
+    {% elif project_page.previous_url or project_page.next_url %}
+      {% include "portal/components/empty-state.html" with heading_id="project-page-empty" title="No projects in these results" message="The project list changed. Use Previous or Next to continue." %}
     {% elif active_scope == "shared" %}
       {% include "portal/components/empty-state.html" with heading_id="shared-projects-empty" title="No shared projects" message="Only published projects with an active grant to your SOEID appear here." %}
     {% else %}
       {% include "portal/components/empty-state.html" with heading_id="owned-projects-empty" title="Create your first project" message="Start with project details, then upload a self-contained dashboard revision." action_url=create_project_url action_label="Create new project" %}
     {% endif %}
+    {% include "portal/components/cursor-pagination.html" with page=project_page pagination_label="Project results" item_label="projects" %}
   </section>
 {% endblock %}

@@ -25,7 +25,6 @@
     <dl class="portal-metric-grid">
       <div><dt>Status</dt><dd>{% include "portal/components/status-badge.html" with label=project.get_state_display tone="info" %}</dd></div>
       <div><dt>{% if is_owner %}Latest revision{% else %}Published revision{% endif %}</dt><dd>{% if is_owner and project.latest_revision %}{{ project.latest_revision.number }}{% elif not is_owner and project.published_revision %}{{ project.published_revision.number }}{% else %}-{% endif %}</dd></div>
-      {% if is_owner %}<div><dt>Active viewers</dt><dd>{{ viewer_count }}</dd></div>{% endif %}
       <div><dt>Last updated</dt><dd>{{ project.updated_at|date:"M j, Y, g:i a" }}</dd></div>
     </dl>
   </section>
@@ -37,9 +36,9 @@
         <a class="portal-button portal-button--secondary" href="{% url 'project-upload' project.id %}">Upload revision</a>
       </div>
       {% if revisions %}
-        <div class="portal-table-wrap">
+        <div class="portal-table-wrap" role="region" aria-labelledby="revision-table-caption" tabindex="0">
           <table class="portal-table">
-            <caption>Uploaded dashboard revisions</caption>
+            <caption id="revision-table-caption">Uploaded dashboard revisions</caption>
             <thead><tr><th scope="col">Revision</th><th scope="col">Files</th><th scope="col">Uploaded</th><th scope="col">Publication</th><th scope="col"><span class="portal-visually-hidden">Action</span></th></tr></thead>
             <tbody>
               {% for revision in revisions %}
@@ -54,17 +53,15 @@
             </tbody>
           </table>
         </div>
-        {% if revisions.has_other_pages %}
-          <nav class="portal-pagination" aria-label="Revision pages">
-            {% if revisions.has_previous %}<a class="portal-pagination__link" href="{% url 'project-detail' project.id %}?page={{ revisions.previous_page_number }}">Previous</a>{% endif %}
-            <span class="portal-pagination__status" aria-current="page">Page {{ revisions.number }} of {{ revisions.paginator.num_pages }}</span>
-            {% if revisions.has_next %}<a class="portal-pagination__link" href="{% url 'project-detail' project.id %}?page={{ revisions.next_page_number }}">Next</a>{% endif %}
-          </nav>
-        {% endif %}
       {% else %}
-        {% url "project-upload" project.id as upload_url %}
-        {% include "portal/components/empty-state.html" with heading_id="revision-empty" title="Upload the first revision" message="Choose one self-contained HTML dashboard and any CSV files it references." action_url=upload_url action_label="Upload revision" %}
+        {% if revision_page.previous_url or revision_page.next_url %}
+          {% include "portal/components/empty-state.html" with heading_id="revision-page-empty" title="No revisions in these results" message="Revision history changed. Use Previous or Next to continue." %}
+        {% else %}
+          {% url "project-upload" project.id as upload_url %}
+          {% include "portal/components/empty-state.html" with heading_id="revision-empty" title="Upload the first revision" message="Choose one self-contained HTML dashboard and any CSV files it references." action_url=upload_url action_label="Upload revision" %}
+        {% endif %}
       {% endif %}
+      {% include "portal/components/cursor-pagination.html" with page=revision_page pagination_label="Revision history" item_label="revisions" %}
     </section>
   {% else %}
     <section class="portal-section" aria-labelledby="viewer-access-heading">

@@ -1,16 +1,14 @@
 """Trusted portal routes. Uploaded artifact delivery must never be added here."""
 
-from django.urls import path
+from django.urls import include, path
 
 from agora.portal.views import (
-    home,
     login_view,
     logout_view,
     project_access,
     project_create,
     project_detail,
     project_grant_revoke,
-    project_list,
     project_preview,
     project_upload,
     project_view,
@@ -22,10 +20,9 @@ from agora.portal.views import (
 )
 
 urlpatterns = [
-    path("", home, name="home"),
+    path("", include("agora.urls.discovery")),
     path("login/", login_view, name="login"),
     path("logout/", logout_view, name="logout"),
-    path("projects/", project_list, name="project-list"),
     path("projects/new/", project_create, name="project-create"),
     path("projects/<uuid:project_id>/", project_detail, name="project-detail"),
     path("projects/<uuid:project_id>/access/", project_access, name="project-access"),

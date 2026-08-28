@@ -19,6 +19,104 @@
         </div>
       </section>
 
+      <section class="portal-home-projects" aria-labelledby="return-heading">
+        <header class="portal-home-projects__header">
+          <p class="portal-eyebrow">Quick return</p>
+          <h2 id="return-heading">Return to a dashboard</h2>
+          <p>Open a favorite or pick up where you recently left off.</p>
+        </header>
+        <div class="portal-home-project-stack">
+          <section class="portal-home-project-group" aria-labelledby="favorites-heading">
+            <div class="portal-section__heading portal-section__heading--actions">
+              <div>
+                <p class="portal-eyebrow">Saved by you</p>
+                <h3 id="favorites-heading">Favorites</h3>
+              </div>
+              <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">Find dashboards</a>
+            </div>
+            {% if favorites %}
+              <div class="portal-table-wrap" role="region" aria-labelledby="favorites-caption" tabindex="0">
+                <table class="portal-table">
+                  <caption id="favorites-caption">Up to 10 dashboards you marked as favorites</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Dashboard</th>
+                      <th scope="col">Owner</th>
+                      <th scope="col"><span class="portal-visually-hidden">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for project in favorites|slice:":10" %}
+                      {% url "project-view" project.id as favorite_open_url %}
+                      <tr>
+                        <td><a class="portal-table__primary-link" href="{{ favorite_open_url }}">{{ project.name }}</a></td>
+                        <td>{{ project.owner.soeid }}</td>
+                        <td>
+                          <div class="portal-action-group">
+                            <a class="portal-button portal-button--quiet" href="{{ favorite_open_url }}">Open dashboard</a>
+                            {% if project.state == "published" and project.published_revision %}
+                              {% include "portal/discovery/_favorite_form.html" with project=project %}
+                            {% endif %}
+                          </div>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              {% include "portal/components/empty-state.html" with heading_id="favorites-empty" heading_level=4 title="No favorites yet" message="Use Add to favorites on a published dashboard to keep it here." %}
+            {% endif %}
+          </section>
+
+          <section class="portal-home-project-group" aria-labelledby="recently-viewed-heading">
+            <div class="portal-section__heading portal-section__heading--actions">
+              <div>
+                <p class="portal-eyebrow">Your activity</p>
+                <h3 id="recently-viewed-heading">Recently viewed</h3>
+              </div>
+              <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">Browse projects</a>
+            </div>
+            {% if recently_viewed %}
+              <div class="portal-table-wrap" role="region" aria-labelledby="recently-viewed-caption" tabindex="0">
+                <table class="portal-table">
+                  <caption id="recently-viewed-caption">Up to 10 dashboards you opened most recently</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Dashboard</th>
+                      <th scope="col">Owner</th>
+                      <th scope="col"><span class="portal-visually-hidden">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for project in recently_viewed|slice:":10" %}
+                      {% url "project-view" project.id as recent_open_url %}
+                      <tr>
+                        <td>
+                          <a class="portal-table__primary-link" href="{{ recent_open_url }}">{{ project.name }}</a>
+                          {% if project.has_new_publication %}<span class="portal-table__secondary">{% include "portal/components/status-badge.html" with label="New" tone="positive" %}</span>{% endif %}
+                        </td>
+                        <td>{{ project.owner.soeid }}</td>
+                        <td>
+                          <div class="portal-action-group">
+                            <a class="portal-button portal-button--quiet" href="{{ recent_open_url }}">Open dashboard</a>
+                            {% if project.state == "published" and project.published_revision %}
+                              {% include "portal/discovery/_favorite_form.html" with project=project %}
+                            {% endif %}
+                          </div>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              {% include "portal/components/empty-state.html" with heading_id="recently-viewed-empty" heading_level=4 title="No recently viewed dashboards" message="Published dashboards you open will appear here for a quick return." %}
+            {% endif %}
+          </section>
+        </div>
+      </section>
+
       <section class="portal-home-projects" aria-labelledby="home-projects-heading">
         <header class="portal-home-projects__header">
           <p class="portal-eyebrow">Workspace</p>
@@ -51,7 +149,6 @@
                       <tr>
                         <td>
                           <a class="portal-table__primary-link" href="{{ project_open_url }}">{{ project.name }}</a>
-                          {% if project.description %}<span class="portal-table__secondary">{{ project.description|truncatechars:100 }}</span>{% endif %}
                         </td>
                         <td>{% include "portal/components/status-badge.html" with label=project.get_state_display tone="info" %}</td>
                         <td>{% if project.latest_revision %}Revision {{ project.latest_revision.number }}{% else %}No upload yet{% endif %}</td>
@@ -62,7 +159,7 @@
                 </table>
               </div>
             {% else %}
-              {% include "portal/components/empty-state.html" with heading_id="my-projects-empty" heading_level=4 title="Create your first project" message="A project holds one dashboard and its immutable HTML/CSV revisions." action_url=create_project_url action_label="Create new project" %}
+              {% include "portal/components/empty-state.html" with heading_id="my-projects-empty" heading_level=4 title="Create your first project" message="A project holds one dashboard and its immutable HTML/CSV revisions." action_url=create_project_url action_label="Create new project" action_variant="secondary" %}
             {% endif %}
           </section>
 
@@ -83,7 +180,6 @@
                       <div><p class="portal-card__eyebrow">Shared by {{ project.owner.soeid }}</p><h4><a class="portal-card__title-link" href="{{ project_open_url }}">{{ project.name }}</a></h4></div>
                       {% include "portal/components/status-badge.html" with label="Published" tone="positive" %}
                     </div>
-                    <p>{{ project.description|default:"No description provided."|truncatechars:160 }}</p>
                     <div class="portal-card__actions"><a class="portal-button portal-button--secondary" href="{{ project_open_url }}">Open dashboard</a></div>
                   </article>
                 {% endfor %}

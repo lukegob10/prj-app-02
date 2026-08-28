@@ -5,7 +5,7 @@
 
 {% block content %}
   {% url "project-create" as create_project_url %}
-  {% include "portal/components/page-header.html" with eyebrow="Dashboard workspace" title="Projects" intro="Keep your own dashboard work separate from projects shared with your SOEID." action_url=create_project_url action_label="Create new project" %}
+  {% include "portal/components/page-header.html" with eyebrow="Dashboard workspace" title="Projects" intro="Search your projects or dashboards currently shared with your SOEID." action_url=create_project_url action_label="Create new project" %}
 
   <nav class="portal-tabs" aria-label="Project scope">
     <a class="portal-tabs__link{% if active_scope == 'mine' %} portal-tabs__link--current{% endif %}" href="{{ mine_url }}"{% if active_scope == 'mine' %} aria-current="page"{% endif %}>My projects</a>
@@ -17,12 +17,60 @@
       <p class="portal-eyebrow">{% if active_scope == "shared" %}Published access{% else %}Owner workspace{% endif %}</p>
       <h2 id="project-list-heading">{% if active_scope == "shared" %}Shared with me{% else %}My projects{% endif %}</h2>
     </div>
+
+    <form class="portal-search" role="search" method="get" action="{{ search_url }}">
+      <input type="hidden" name="scope" value="{{ active_scope }}">
+      <label class="portal-form-field__label" for="dashboard-search">
+        Search {% if active_scope == "shared" %}Shared with me{% else %}My projects{% endif %}
+      </label>
+      <p class="portal-form-field__help" id="dashboard-search-help">
+        Enter the beginning of a dashboard name, owner SOEID, or tag.
+      </p>
+      <div class="portal-search__controls">
+        <input
+          class="portal-input portal-search__input"
+          id="dashboard-search"
+          name="query"
+          type="search"
+          value="{{ search_input }}"
+          maxlength="200"
+          autocomplete="off"
+          spellcheck="false"
+          aria-describedby="dashboard-search-help{% if search_form.query.errors %} dashboard-search-error{% endif %}"
+          {% if search_form.query.errors %}aria-invalid="true"{% endif %}
+        >
+        <button class="portal-button portal-button--secondary" type="submit">Search</button>
+        {% if search_active or search_input %}
+          <a class="portal-button portal-button--quiet" href="{{ clear_search_url }}">Clear search</a>
+        {% endif %}
+      </div>
+      {% if search_form.query.errors %}
+        <div class="portal-form-field__error" id="dashboard-search-error" role="alert">
+          {{ search_form.query.errors }}
+        </div>
+      {% endif %}
+    </form>
+
+    {% if search_active and not search_form.query.errors %}
+      <p class="portal-search__summary">
+        Showing authorized dashboards that match <strong>{{ search_query }}</strong>.
+      </p>
+    {% endif %}
+
     {% if projects %}
       <div class="portal-table-wrap" role="region" aria-labelledby="project-table-caption" tabindex="0">
         <table class="portal-table">
-          <caption id="project-table-caption">{% if active_scope == "shared" %}Projects currently shared with your SOEID{% else %}Projects owned by your SOEID{% endif %}</caption>
+          <caption id="project-table-caption">
+            {% if search_active %}Search results in {% endif %}{% if active_scope == "shared" %}Shared with me{% else %}My projects{% endif %}
+          </caption>
           <thead>
-            <tr><th scope="col">Project</th>{% if active_scope == "shared" %}<th scope="col">Owner</th>{% endif %}<th scope="col">Status</th><th scope="col">Revision</th><th scope="col"><span class="portal-visually-hidden">Action</span></th></tr>
+            <tr>
+              <th scope="col">Project</th>
+              {% if active_scope == "shared" %}<th scope="col">Owner</th>{% endif %}
+              <th scope="col">Status</th>
+              <th scope="col">Revision</th>
+              <th scope="col"><span class="portal-visually-hidden">Actions</span></th>
+            </tr>
           </thead>
           <tbody>
             {% for project in projects %}
@@ -34,11 +82,24 @@
                 {% url "project-detail" project.id as project_open_url %}
               {% endif %}
               <tr>
-                <td><a class="portal-table__primary-link" href="{{ project_open_url }}">{{ project.name }}</a>{% if project.description %}<span class="portal-table__secondary">{{ project.description|truncatechars:120 }}</span>{% endif %}</td>
+                <td>
+                  <a class="portal-table__primary-link" href="{{ project_open_url }}">{{ project.name }}</a>
+                </td>
                 {% if active_scope == "shared" %}<td>{{ project.owner.soeid }}</td>{% endif %}
                 <td>{% include "portal/components/status-badge.html" with label=project.get_state_display tone="info" %}</td>
                 <td>{% if active_scope == "shared" %}{{ project.published_revision.number }}{% elif project.latest_revision %}{{ project.latest_revision.number }}{% else %}-{% endif %}</td>
-                <td><a class="portal-button portal-button--quiet" href="{{ project_open_url }}">{% if active_scope == "shared" or project.latest_revision %}Open dashboard{% else %}Set up{% endif %}</a></td>
+                <td>
+                  <div class="portal-action-group">
+                    <a class="portal-button portal-button--quiet" href="{{ project_open_url }}">{% if active_scope == "shared" or project.latest_revision %}Open dashboard{% else %}Set up{% endif %}</a>
+                    {% if active_scope == "mine" and project.state != "archived" and project.state != "deleted" %}
+                      {% url "project-tags" project.id as project_tags_url %}
+                      <a class="portal-button portal-button--quiet" href="{{ project_tags_url }}">Manage tags</a>
+                    {% endif %}
+                    {% if project.state == "published" and project.published_revision %}
+                      {% include "portal/discovery/_favorite_form.html" with project=project %}
+                    {% endif %}
+                  </div>
+                </td>
               </tr>
             {% endfor %}
           </tbody>
@@ -46,10 +107,14 @@
       </div>
     {% elif project_page.previous_url or project_page.next_url %}
       {% include "portal/components/empty-state.html" with heading_id="project-page-empty" title="No projects in these results" message="The project list changed. Use Previous or Next to continue." %}
+    {% elif search_form.query.errors %}
+      {% include "portal/components/empty-state.html" with heading_id="project-search-error-state" title="Fix the search above" message="Your project list was not searched because the search text is invalid." %}
+    {% elif search_active %}
+      {% include "portal/components/empty-state.html" with heading_id="project-search-empty" title="No dashboards match this search" message="Try a shorter beginning or check the dashboard name, owner SOEID, or tag." %}
     {% elif active_scope == "shared" %}
-      {% include "portal/components/empty-state.html" with heading_id="shared-projects-empty" title="No shared projects" message="Only published projects with an active grant to your SOEID appear here." %}
+      {% include "portal/components/empty-state.html" with heading_id="shared-projects-empty" title="No shared projects" message="Only published projects with active access for your SOEID appear here." %}
     {% else %}
-      {% include "portal/components/empty-state.html" with heading_id="owned-projects-empty" title="Create your first project" message="Start with project details, then upload a self-contained dashboard revision." action_url=create_project_url action_label="Create new project" %}
+      {% include "portal/components/empty-state.html" with heading_id="owned-projects-empty" title="Create your first project" message="Start with project details, then upload a self-contained dashboard revision." action_url=create_project_url action_label="Create new project" action_variant="secondary" %}
     {% endif %}
     {% include "portal/components/cursor-pagination.html" with page=project_page pagination_label="Project results" item_label="projects" %}
   </section>

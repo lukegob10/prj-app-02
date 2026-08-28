@@ -1,0 +1,56 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Manage tags | {{ project.name }} | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow=project.name title="Manage tags" intro="Add up to five short tags so authorized people can find this dashboard." %}
+
+  <section class="portal-section" aria-labelledby="tag-form-heading">
+    <div class="portal-section__heading">
+      <h2 id="tag-form-heading">Dashboard tags</h2>
+      <p class="portal-form-field__help">Tags ignore differences in capitalization and extra spaces. Leave every field blank to remove all tags.</p>
+    </div>
+
+    <form class="portal-form-stack" method="post" action="{{ tag_action_url }}" novalidate>
+      {% csrf_token %}
+      {% if tag_form.non_field_errors %}
+        <div class="portal-alert portal-alert--error" role="alert">
+          <span class="portal-alert__marker" aria-hidden="true">!</span>
+          <div>
+            <h3>Tags were not saved</h3>
+            {{ tag_form.non_field_errors }}
+          </div>
+        </div>
+      {% endif %}
+
+      {% for field in tag_form %}
+        <div class="portal-form-field">
+          <label class="portal-form-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          <p class="portal-form-field__help" id="{{ field.id_for_label }}-help">Optional. Use 40 characters or fewer.</p>
+          <input
+            class="portal-input"
+            id="{{ field.id_for_label }}"
+            name="{{ field.html_name }}"
+            type="text"
+            value="{{ field.value|default_if_none:'' }}"
+            maxlength="40"
+            autocomplete="off"
+            spellcheck="false"
+            aria-describedby="{{ field.id_for_label }}-help{% if field.errors %} {{ field.id_for_label }}-error{% endif %}"
+            {% if field.errors %}aria-invalid="true"{% endif %}
+            {% if forloop.first %}autofocus{% endif %}
+          >
+          {% if field.errors %}
+            <div class="portal-form-field__error" id="{{ field.id_for_label }}-error" role="alert">{{ field.errors }}</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+
+      <div class="portal-action-group">
+        <button class="portal-button portal-button--primary" type="submit">Save tags</button>
+        <a class="portal-button portal-button--quiet" href="{{ cancel_url }}">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

@@ -112,16 +112,34 @@ def set_dashboard_favorite(
     user_id: UUID,
     favorited: bool,
 ) -> DashboardFavorite | None:
-    """Set or clear one personal favorite idempotently."""
+    """Set or clear one personal favorite idempotently.
+
+    Creation locks the dashboard before resolving the principal so publication,
+    ownership, grant, and account changes cannot race the authorization check.
+    Removing a retained shortcut remains available without treating that row as
+    evidence that the dashboard is still visible.
+    """
     with transaction.atomic(durable=True):
-        user = get_one_or_none(User.objects.select_for_update().filter(id=user_id, is_active=True))
-        if user is None:
-            raise EnhancementAccessDenied(_GENERIC_FAILURE)
         if not favorited:
+            user = get_one_or_none(
+                User.objects.select_for_update().filter(id=user_id, is_active=True)
+            )
+            if user is None:
+                raise EnhancementAccessDenied(_GENERIC_FAILURE)
             DashboardFavorite.objects.filter(user_id=user.id, dashboard_id=dashboard_id).delete()
             return None
-        dashboard = _visible_dashboard(dashboard_id=dashboard_id, user=user)
-        if dashboard is None:
+
+        dashboard = get_one_or_none(
+            Dashboard.objects.select_for_update().filter(
+                id=dashboard_id,
+                state=Dashboard.State.PUBLISHED,
+                published_revision__isnull=False,
+            )
+        )
+        user = get_one_or_none(User.objects.select_for_update().filter(id=user_id, is_active=True))
+        if dashboard is None or user is None:
+            raise EnhancementAccessDenied(_GENERIC_FAILURE)
+        if dashboard.owner_id != user.id and _active_grant(dashboard.id, user.id) is None:
             raise EnhancementAccessDenied(_GENERIC_FAILURE)
         favorite, _ = DashboardFavorite.objects.get_or_create(user=user, dashboard=dashboard)
         return favorite
@@ -513,21 +531,6 @@ def _lock_current_owner(*, dashboard_id: UUID, actor_id: UUID) -> tuple[Dashboar
     if dashboard is None or actor is None or dashboard.owner_id != actor.id:
         raise EnhancementAccessDenied(_GENERIC_FAILURE)
     return dashboard, actor
-
-
-def _visible_dashboard(*, dashboard_id: UUID, user: User) -> Dashboard | None:
-    dashboard = get_one_or_none(
-        Dashboard.objects.filter(id=dashboard_id).exclude(state=Dashboard.State.DELETED)
-    )
-    if dashboard is None:
-        return None
-    if dashboard.owner_id == user.id:
-        return dashboard
-    if dashboard.state != Dashboard.State.PUBLISHED or dashboard.published_revision_id is None:
-        return None
-    if _active_grant(dashboard.id, user.id) is None:
-        return None
-    return dashboard
 
 
 def _active_grant(

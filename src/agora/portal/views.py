@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import urlencode
 from uuid import UUID
 
 from django.conf import settings
@@ -50,13 +49,11 @@ from agora.persistence.projects import (
     ProjectOwnerUnavailable,
     create_project,
     manageable_project,
-    owned_projects,
     prefetch_revision_artifacts,
     project_active_grants,
     project_grant_epoch,
     project_grant_history,
     project_revisions,
-    shared_projects,
     visible_project,
 )
 from agora.persistence.querying import administrator_user_list
@@ -115,10 +112,6 @@ UPLOAD_MESSAGES = {
     ),
 }
 
-PROJECT_CURSOR_COLUMNS = (
-    CursorColumn("updated_at", CursorValueKind.DATETIME, descending=True),
-    CursorColumn("id", CursorValueKind.UUID),
-)
 REVISION_CURSOR_COLUMNS = (CursorColumn("number", CursorValueKind.INTEGER, descending=True),)
 ACTIVE_GRANT_CURSOR_COLUMNS = (CursorColumn("viewer__soeid", CursorValueKind.TEXT),)
 GRANT_HISTORY_CURSOR_COLUMNS = (
@@ -144,66 +137,19 @@ GRANT_REJECTION_MESSAGES = {
 
 
 def home(request: HttpRequest) -> HttpResponse:
-    """Render the public introduction or an authenticated project overview."""
-    recent_owned: list[object] = []
-    recent_shared: list[object] = []
-    is_authenticated = False
-    if isinstance(request.user, User) and request.user.is_authenticated:
-        is_authenticated = True
-        owned = owned_projects(request.user.id)
-        shared = shared_projects(request.user.id)
-        recent_owned = list(owned[:5])
-        recent_shared = list(shared[:5])
-    return render(
-        request,
-        "portal/home.html",
-        {
-            "content_origin": settings.AGORA_CONTENT_ORIGIN,
-            "environment": settings.AGORA_ENVIRONMENT,
-            "hide_account_menu": not is_authenticated,
-            "recent_owned": recent_owned,
-            "recent_shared": recent_shared,
-        },
-    )
+    """Compatibility wrapper for the dedicated discovery home view."""
+    from .discovery_views import home as discovery_home
+
+    return discovery_home(request)
 
 
 @login_required
 @require_http_methods(["GET"])
 def project_list(request: HttpRequest) -> HttpResponse:
-    """Show either owner projects or currently available shared projects."""
-    user = cast(User, request.user)
-    scope = request.GET.get("scope")
-    active_scope = "shared" if scope == "shared" else "mine"
-    projects = shared_projects(user.id) if active_scope == "shared" else owned_projects(user.id)
-    try:
-        project_page = paginate_keyset(
-            projects,
-            columns=PROJECT_CURSOR_COLUMNS,
-            namespace=f"project-list-{active_scope}",
-            context=str(user.id),
-            cursor=request.GET.get("cursor"),
-            page_size=PROJECT_PAGE_SIZE,
-        )
-    except InvalidCursor:
-        return render(request, "portal/not_found.html", status=404)
-    list_url = reverse("project-list")
-    scope_query = {"scope": "shared"} if active_scope == "shared" else {}
-    project_page = project_page.with_urls(
-        base_url=list_url,
-        cursor_parameter="cursor",
-        preserved_query=scope_query,
-    )
-    return render(
-        request,
-        "portal/projects/list.html",
-        {
-            "active_scope": active_scope,
-            "projects": project_page.items,
-            "project_page": project_page,
-            "mine_url": list_url,
-            "shared_url": f"{list_url}?{urlencode({'scope': 'shared'})}",
-        },
-    )
+    """Compatibility wrapper preserving the established pagination test seam."""
+    from .discovery_views import project_list as discovery_project_list
+
+    return discovery_project_list(request, page_size=PROJECT_PAGE_SIZE)
 
 
 @login_required

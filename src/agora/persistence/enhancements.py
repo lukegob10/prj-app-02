@@ -301,9 +301,16 @@ def transfer_dashboard_ownership(
     dashboard_id: UUID,
     actor_id: UUID,
     incoming_owner_id: UUID,
+    expected_transfer_id: UUID | _Unset | None = UNSET,
     now: datetime | None = None,
 ) -> Dashboard:
-    """Atomically transfer one dashboard while preserving every historical actor."""
+    """Atomically transfer one dashboard while preserving every historical actor.
+
+    ``expected_transfer_id`` binds a browser confirmation to the exact ownership epoch.  The
+    comparison happens only after locking the Dashboard, so an A-to-B-to-A transfer cannot make a
+    stale confirmation current again.  Existing trusted callers may omit it and still receive the
+    service's current-owner and optimistic-update protections.
+    """
     transferred_at = now or timezone.now()
     with transaction.atomic(durable=True):
         dashboard = get_one_or_none(Dashboard.objects.select_for_update().filter(id=dashboard_id))
@@ -312,6 +319,11 @@ def transfer_dashboard_ownership(
             Dashboard.State.PUBLISHED,
             Dashboard.State.UNPUBLISHED,
         }:
+            raise EnhancementAccessDenied(_GENERIC_FAILURE)
+        if (
+            expected_transfer_id is not UNSET
+            and dashboard.last_ownership_transfer_id != expected_transfer_id
+        ):
             raise EnhancementAccessDenied(_GENERIC_FAILURE)
         users = {
             user.id: user
@@ -354,6 +366,16 @@ def transfer_dashboard_ownership(
             incoming_request.resolved_by = actor
             incoming_request.save(
                 update_fields=("status", "resolved_at", "resolved_by", "updated_at")
+            )
+            AuditEvent.objects.create(
+                event_type="access.resolved",
+                actor=actor,
+                dashboard=dashboard,
+                target_user=incoming_owner,
+                metadata={
+                    "request_id": incoming_request.id,
+                    "resolution": AccessRequest.Status.APPROVED.value,
+                },
             )
 
         marker = DashboardOwnershipTransfer.objects.create(

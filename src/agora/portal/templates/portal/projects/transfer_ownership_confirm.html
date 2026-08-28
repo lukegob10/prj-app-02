@@ -1,0 +1,39 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Confirm ownership transfer | {{ project.name }} | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow="Project stewardship" title="Confirm ownership transfer" intro="This changes who has Full control of the project." action_url=access_url action_label="Back to Share panel" action_variant="secondary" %}
+
+  <section class="portal-section portal-section--compact" aria-labelledby="confirm-transfer-heading">
+    <div class="portal-danger-zone">
+      <p class="portal-eyebrow portal-eyebrow--danger">Ownership change</p>
+      <h2 id="confirm-transfer-heading">Transfer {{ project.name }} to {{ incoming_owner_soeid }}?</h2>
+      <p>Confirm only after reviewing every effect:</p>
+      <ul class="portal-list">
+        <li><strong>{{ incoming_owner_soeid }}</strong> becomes the owner with Full control.</li>
+        <li>You immediately lose management, preview, published-owner view, the access-request queue, aggregate usage, and existing render authority. Each fails on its next authorization check.</li>
+        <li>The stable viewer URL, revision history, pinned Published revision, publication state, and Tags do not change.</li>
+        <li>Unrelated Viewer grants do not change. Any active Viewer grant for {{ incoming_owner_soeid }} is closed and retained in access history.</li>
+        <li>A pending access request from {{ incoming_owner_soeid }} becomes Approved. All other pending requests remain for the new owner.</li>
+        <li>Historical creators, grantors, and revokers remain unchanged. The transfer is added to ownership and audit history and cannot be undone by rewriting history.</li>
+        <li>A transfer-back is a new ownership action. It does not restore earlier authority or recreate the revoked Viewer grant.</li>
+      </ul>
+      <form class="portal-form-stack" method="post" action="{{ confirm_url }}" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="confirmation_token" value="{{ confirmation_token }}">
+        {% if form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="portal-check-field">
+          {{ form.confirm }}
+          <label class="portal-form-field__label" for="{{ form.confirm.id_for_label }}">{{ form.confirm.label }}</label>
+        </div>
+        {% if form.confirm.errors %}<div class="portal-form-field__error" id="transfer-confirm-error" role="alert">{{ form.confirm.errors }}</div>{% endif %}
+        <div class="portal-action-group">
+          <a class="portal-button portal-button--quiet" href="{{ access_url }}">Cancel</a>
+          <button class="portal-button portal-button--danger" type="submit">Transfer ownership</button>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

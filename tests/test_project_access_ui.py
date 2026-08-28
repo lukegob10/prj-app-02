@@ -599,5 +599,8 @@ def test_active_grant_cursor_survives_a_revocation_between_requests(
     )
     second = client.get(next_url)
     assert second.status_code == 200
-    assert viewers[1].soeid.encode() not in second.content
-    assert viewers[2].soeid.encode() in second.content
+    active_soeids = {grant.viewer.soeid for grant in second.context["active_grants"]}
+    # The revoked SOEID may still appear inside the retained-history disclosure, but it must not
+    # remain on the active page or displace the next current Viewer.
+    assert viewers[1].soeid not in active_soeids
+    assert viewers[2].soeid in active_soeids

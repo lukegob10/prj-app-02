@@ -1,0 +1,47 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Request access | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% if request_submitted %}
+    {% include "portal/components/page-header.html" with eyebrow="Viewer access" title="Request access" intro="Your submission has been handled without revealing dashboard details." %}
+  {% else %}
+    {% include "portal/components/page-header.html" with eyebrow="Viewer access" title="Project unavailable" intro="This project does not exist or is not available to your SOEID. You may send a generic access request below." %}
+  {% endif %}
+
+  <section class="portal-section portal-section--compact" aria-labelledby="request-access-heading">
+    {% if request_submitted %}
+      <div class="portal-boundary-note" role="status">
+        <div class="portal-boundary-note__heading">
+          <span class="portal-boundary-note__marker" aria-hidden="true">✓</span>
+          <div>
+            <p class="portal-eyebrow">Request submitted</p>
+            <h2 id="request-access-heading">Request received</h2>
+          </div>
+        </div>
+        <p>Request received. If this dashboard can accept requests, its owner will see it.</p>
+        <p>Submitting more than once does not create duplicate pending requests. You can close this page.</p>
+      </div>
+    {% else %}
+      <form class="portal-card portal-form-stack" method="post" action="{{ request_url }}" novalidate aria-labelledby="request-access-heading">
+        {% csrf_token %}
+        <div>
+          <p class="portal-card__eyebrow">Viewer access</p>
+          <h2 id="request-access-heading">Send a request</h2>
+        </div>
+        <p>You can include a short note for the owner. No dashboard details are shown until access is granted.</p>
+        {% if request_form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ request_form.non_field_errors }}</div>{% endif %}
+        <div class="portal-form-field">
+          <label class="portal-form-field__label" for="{{ request_form.message.id_for_label }}">{{ request_form.message.label }}</label>
+          <p class="portal-form-field__help" id="access-request-message-help">Optional, up to 500 characters. The owner can read this message if the request can be delivered.</p>
+          {{ request_form.message }}
+          {% if request_form.message.errors %}<div class="portal-form-field__error" id="request-message-error" role="alert">{{ request_form.message.errors }}</div>{% endif %}
+        </div>
+        <div class="portal-action-group">
+          <button class="portal-button portal-button--primary" type="submit">Request access</button>
+        </div>
+      </form>
+    {% endif %}
+  </section>
+{% endblock %}

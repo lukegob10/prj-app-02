@@ -1,0 +1,57 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Access requests | {{ project.name }} | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow="Project sharing" title="Access requests" intro="Review pending Viewer requests for this project." action_url=access_url action_label="Back to Share panel" action_variant="secondary" %}
+
+  <section class="portal-section" aria-labelledby="pending-requests-heading">
+    <div class="portal-section__heading">
+      <p class="portal-eyebrow">Pending only</p>
+      <h2 id="pending-requests-heading">Requests for {{ project.name }}</h2>
+      <p>Give access only when you recognize the requester. Approval opens a Viewer grant through the same project access policy; denial records the decision without granting access.</p>
+      <p>If an account becomes disabled or another action resolves the request first, Agora makes no unsafe access change. Refresh the queue after any message that says the request could not be completed.</p>
+    </div>
+
+    {% if access_requests %}
+      <div class="portal-table-wrap" role="region" aria-labelledby="access-requests-caption" tabindex="0">
+        <table class="portal-table">
+          <caption id="access-requests-caption">Pending access requests for {{ project.name }}, up to 25 per page</caption>
+          <thead>
+            <tr><th scope="col">Requester SOEID</th><th scope="col">Account status</th><th scope="col">Message</th><th scope="col">Requested</th><th scope="col">Decision</th></tr>
+          </thead>
+          <tbody>
+            {% for access_request in access_requests %}
+              <tr>
+                <td><strong>{{ access_request.requester.soeid }}</strong></td>
+                <td>{% if access_request.requester.is_active %}{% include "portal/components/status-badge.html" with label="Active account" tone="positive" %}{% else %}{% include "portal/components/status-badge.html" with label="Disabled account" tone="danger" %}<span class="portal-table__secondary">Approval is blocked</span>{% endif %}</td>
+                <td>{% if access_request.message %}{{ access_request.message }}{% else %}<span class="portal-table__secondary">No message</span>{% endif %}</td>
+                <td>{{ access_request.requested_at|date:"M j, Y, g:i a" }}</td>
+                <td>
+                  <div class="portal-action-group">
+                    <form method="post" action="{% url 'project-access-request-approve' project.id access_request.id %}">
+                      {% csrf_token %}
+                      <button class="portal-button portal-button--primary" type="submit">Give access<span class="portal-visually-hidden"> to {{ access_request.requester.soeid }}</span></button>
+                    </form>
+                    <form method="post" action="{% url 'project-access-request-decline' project.id access_request.id %}">
+                      {% csrf_token %}
+                      <button class="portal-button portal-button--quiet" type="submit">Deny request<span class="portal-visually-hidden"> from {{ access_request.requester.soeid }}</span></button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      {% if request_page.previous_url or request_page.next_url %}
+        {% include "portal/components/empty-state.html" with heading_id="request-page-empty" heading_level=3 title="No pending requests in these results" message="The request queue changed. Use Previous or Next to continue." %}
+      {% else %}
+        {% include "portal/components/empty-state.html" with heading_id="request-queue-empty" heading_level=3 title="No pending requests" message="New access requests will appear here without exposing project details to ungranted recipients." %}
+      {% endif %}
+    {% endif %}
+    {% include "portal/components/cursor-pagination.html" with page=request_page pagination_label="Pending access requests" item_label="pending access requests" %}
+  </section>
+{% endblock %}

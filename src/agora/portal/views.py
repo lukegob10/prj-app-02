@@ -37,6 +37,7 @@ from agora.persistence.authentication import (
     record_logout,
     reset_user_password,
 )
+from agora.persistence.enhancements import EnhancementAccessDenied, request_dashboard_access
 from agora.persistence.models import Dashboard, Revision, User
 from agora.persistence.pagination import (
     CursorColumn,
@@ -81,6 +82,7 @@ from .forms import (
     UserSearchForm,
 )
 from .security import administrator_required, safe_next_url
+from .stewardship_forms import DashboardAccessRequestForm
 
 GENERIC_LOGIN_ERROR = "Sign-in failed. Check your SOEID and password."
 UPLOAD_MESSAGES = {
@@ -285,6 +287,13 @@ def project_access(request: HttpRequest, project_id: UUID) -> HttpResponse:
         {
             "project": project,
             "owner_soeid": user.soeid,
+            "stable_view_url": (
+                f"{settings.AGORA_PORTAL_ORIGIN.rstrip('/')}"
+                f"{reverse('project-view', args=[project.id])}"
+            ),
+            "effective_access_page_count": sum(
+                1 for grant in active_page.items if grant.viewer.is_active
+            ),
             "form": form,
             "grant_url": access_url,
             "active_grants": active_page.items,
@@ -376,16 +385,39 @@ def project_preview(
 
 
 @login_required
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "POST"])
 def project_view(request: HttpRequest, project_id: UUID) -> HttpResponse:
-    """Resolve the stable project URL to the currently pinned published revision."""
+    """Resolve an authorized stable URL or offer the same generic request treatment."""
     user = cast(User, request.user)
+    if request.method == "POST":
+        request_form = DashboardAccessRequestForm(request.POST)
+        if request_form.is_valid():
+            try:
+                request_dashboard_access(
+                    dashboard_id=project_id,
+                    requester_id=user.id,
+                    message=cast(str, request_form.cleaned_data["message"]),
+                )
+            except EnhancementAccessDenied:
+                # Invalid, hidden, ineligible, and already-authorized identifiers deliberately
+                # receive the same acknowledgement as an eligible request.
+                pass
+        return render(
+            request,
+            "portal/projects/request_access.html",
+            {
+                "request_form": DashboardAccessRequestForm(),
+                "request_url": request.path,
+                "request_submitted": True,
+            },
+        )
+
     resolved = visible_project(project_id, user.id)
     if resolved is None:
-        return render(request, "portal/not_found.html", status=404)
+        return _render_access_request(request, status=404)
     project, _ = resolved
     if project.published_revision is None:
-        return render(request, "portal/not_found.html", status=404)
+        return _render_access_request(request, status=404)
     try:
         credential = issue_published_view(dashboard_id=project.id, viewer_id=user.id)
     except RenderAuthorizationDenied:
@@ -398,6 +430,21 @@ def project_view(request: HttpRequest, project_id: UUID) -> HttpResponse:
         revision=project.published_revision,
         credential=credential,
         is_preview=False,
+    )
+
+
+def _render_access_request(request: HttpRequest, *, status: int) -> HttpResponse:
+    """Render the metadata-free stable-link fallback without exposing target validity."""
+
+    return render(
+        request,
+        "portal/projects/request_access.html",
+        {
+            "request_form": DashboardAccessRequestForm(),
+            "request_url": request.path,
+            "request_submitted": False,
+        },
+        status=status,
     )
 
 

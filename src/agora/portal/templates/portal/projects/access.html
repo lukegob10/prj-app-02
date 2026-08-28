@@ -1,55 +1,93 @@
 {% extends "portal/base.html" %}
 
-{% block title %}Manage access | {{ project.name }} | Agora{% endblock %}
+{% block title %}Share {{ project.name }} | Agora{% endblock %}
 {% block body_class %} portal-page--workspace{% endblock %}
 
 {% block content %}
   {% url "project-detail" project.id as detail_url %}
-  {% include "portal/components/page-header.html" with eyebrow="Project access" title="Manage access" intro="Choose exactly which active accounts can view this project. Access is scoped to this project and never grants editing or owner rights." action_url=detail_url action_label="Back to project" action_variant="secondary" %}
+  {% include "portal/components/page-header.html" with eyebrow="Project sharing" title="Share this dashboard" intro="Use one stable link and manage who can open this project's published dashboard." action_url=detail_url action_label="Back to project" action_variant="secondary" %}
 
-  <section class="portal-section portal-access-summary" aria-labelledby="access-boundary-heading">
+  <section class="portal-section portal-access-summary" aria-labelledby="share-link-heading">
     <div class="portal-boundary-note">
       <div class="portal-boundary-note__heading">
         <span class="portal-boundary-note__marker" aria-hidden="true">✓</span>
         <div>
-          <p class="portal-eyebrow">Project boundary</p>
-          <h2 id="access-boundary-heading">{{ project.name }}</h2>
+          <p class="portal-eyebrow">Stable viewer link</p>
+          <h2 id="share-link-heading">Share {{ project.name }}</h2>
         </div>
       </div>
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="stable-view-url">Viewer URL</label>
+        <p class="portal-form-field__help" id="stable-view-url-help">Select the full URL below, then use your device's copy command. The URL does not change when ownership or publication changes.</p>
+        <input class="portal-input" id="stable-view-url" type="url" value="{{ stable_view_url }}" aria-describedby="stable-view-url-help" readonly>
+      </div>
       <dl class="portal-definition-list">
-        <div><dt>Owner</dt><dd><strong>{{ owner_soeid }}</strong> · Full control</dd></div>
+        <div>
+          <dt>Owner</dt>
+          <dd><strong>{{ owner_soeid }}</strong> · Full control</dd>
+        </div>
+        <div>
+          <dt>Effective Viewer access on this page</dt>
+          <dd><strong>{{ effective_access_page_count }}</strong> active account{{ effective_access_page_count|pluralize }} with a current Viewer grant</dd>
+        </div>
       </dl>
-      <p>A Viewer can open only the exact pinned Published revision, including every CSV attached to it. A grant alone never exposes Draft, Unpublished, Archived, or preview content.</p>
+      <p>Viewer access opens only the pinned Published revision and its CSV attachments. This summary covers only the bounded page below; use its Previous and Next links for more grants. Disabled accounts and retained history are not effective access.</p>
     </div>
   </section>
 
-  <section class="portal-section portal-access-grant" aria-labelledby="grant-viewer-heading">
+  <section class="portal-section" aria-labelledby="sharing-actions-heading">
     <div class="portal-section__heading">
-      <div><p class="portal-eyebrow">Add access</p><h2 id="grant-viewer-heading">Grant Viewer access</h2></div>
+      <p class="portal-eyebrow">Sharing tasks</p>
+      <h2 id="sharing-actions-heading">Manage access</h2>
     </div>
-    <form class="portal-card portal-form-stack" method="post" action="{{ grant_url }}" novalidate>
-      {% csrf_token %}
-      {% if form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
-      <div class="portal-form-field">
-        <label class="portal-form-field__label" for="{{ form.soeid.id_for_label }}">{{ form.soeid.label }}</label>
-        <p class="portal-form-field__help" id="viewer-soeid-help">{{ form.soeid.help_text }}</p>
-        {{ form.soeid }}
-        {% if form.soeid.errors %}<div class="portal-form-field__error" id="viewer-soeid-error" role="alert">{{ form.soeid.errors }}</div>{% endif %}
-      </div>
-      <div class="portal-action-group">
-        <button class="portal-button portal-button--primary" type="submit">Grant Viewer access</button>
-      </div>
-    </form>
+    <div class="portal-card-grid portal-card-grid--three">
+      <form class="portal-card portal-form-stack" method="post" action="{{ grant_url }}" novalidate>
+        {% csrf_token %}
+        <div>
+          <p class="portal-card__eyebrow">Add access</p>
+          <h3>Grant Viewer access</h3>
+        </div>
+        {% if form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="portal-form-field">
+          <label class="portal-form-field__label" for="{{ form.soeid.id_for_label }}">{{ form.soeid.label }}</label>
+          <p class="portal-form-field__help" id="viewer-soeid-help">{{ form.soeid.help_text }}</p>
+          {{ form.soeid }}
+          {% if form.soeid.errors %}<div class="portal-form-field__error" id="viewer-soeid-error" role="alert">{{ form.soeid.errors }}</div>{% endif %}
+        </div>
+        <div class="portal-action-group">
+          <button class="portal-button portal-button--primary" type="submit">Grant Viewer access</button>
+        </div>
+      </form>
+
+      <article class="portal-card">
+        <p class="portal-card__eyebrow">Recipient requests</p>
+        <h3>Review access requests</h3>
+        <p>Review the pending queue and either give Viewer access or record a denial. Only unresolved requests are shown.</p>
+        <div class="portal-card__actions">
+          <a class="portal-button portal-button--secondary" href="{% url 'project-access-requests' project.id %}">Open request queue</a>
+        </div>
+      </article>
+
+      <article class="portal-card">
+        <p class="portal-card__eyebrow">Project stewardship</p>
+        <h3>Transfer ownership</h3>
+        <p>Give Full control to another active account without changing the stable viewer URL, revisions, publication, or unrelated Viewer grants.</p>
+        <div class="portal-card__actions">
+          <a class="portal-button portal-button--secondary" href="{% url 'project-transfer' project.id %}">Start ownership transfer</a>
+        </div>
+      </article>
+    </div>
   </section>
 
   <section class="portal-section" aria-labelledby="active-viewers-heading">
     <div class="portal-section__heading">
-      <div><p class="portal-eyebrow">Current access</p><h2 id="active-viewers-heading">Viewer access</h2></div>
+      <p class="portal-eyebrow">Current access</p>
+      <h2 id="active-viewers-heading">People with Viewer grants</h2>
     </div>
     {% if active_grants %}
       <div class="portal-table-wrap" role="region" aria-labelledby="active-grants-caption" tabindex="0">
         <table class="portal-table">
-          <caption id="active-grants-caption">Current Viewer grants for {{ project.name }}</caption>
+          <caption id="active-grants-caption">Current Viewer grants for {{ project.name }}, up to 25 per page</caption>
           <thead>
             <tr><th scope="col">Viewer SOEID</th><th scope="col">Account status</th><th scope="col">Granted</th><th scope="col">Granted by</th><th scope="col"><span class="portal-visually-hidden">Action</span></th></tr>
           </thead>
@@ -60,7 +98,7 @@
                 <td>{% if grant.viewer.is_active %}{% include "portal/components/status-badge.html" with label="Active account" tone="positive" %}{% else %}{% include "portal/components/status-badge.html" with label="Account disabled" tone="danger" %}<span class="portal-table__secondary">Access is currently blocked</span>{% endif %}</td>
                 <td>{{ grant.created_at|date:"M j, Y, g:i a" }}</td>
                 <td>{{ grant.created_by.soeid }}</td>
-                <td><a class="portal-button portal-button--quiet" href="{% url 'project-grant-revoke' project.id grant.id %}">Remove access</a></td>
+                <td><a class="portal-button portal-button--quiet" href="{% url 'project-grant-revoke' project.id grant.id %}">Remove access<span class="portal-visually-hidden"> for {{ grant.viewer.soeid }}</span></a></td>
               </tr>
             {% endfor %}
           </tbody>
@@ -70,44 +108,45 @@
       {% if active_grants_page.previous_url or active_grants_page.next_url %}
         {% include "portal/components/empty-state.html" with heading_id="active-viewers-page-empty" heading_level=3 title="No Viewer grants in these results" message="Viewer access changed. Use Previous or Next to continue." %}
       {% else %}
-        {% include "portal/components/empty-state.html" with heading_id="active-viewers-empty" heading_level=3 title="No Viewer grants" message="Only the owner has access right now. Grant an active account access above when the Published dashboard is ready." %}
+        {% include "portal/components/empty-state.html" with heading_id="active-viewers-empty" heading_level=3 title="No Viewer grants" message="Only the owner has access right now. Grant an active account access when the Published dashboard is ready." %}
       {% endif %}
     {% endif %}
     {% include "portal/components/cursor-pagination.html" with page=active_grants_page pagination_label="Current Viewer access" item_label="current Viewer grants" %}
   </section>
 
-  <section class="portal-section" aria-labelledby="grant-history-heading">
-    <div class="portal-section__heading">
-      <div><p class="portal-eyebrow">Retained audit history</p><h2 id="grant-history-heading">Revoked access</h2></div>
-    </div>
-    {% if grant_history %}
-      <div class="portal-table-wrap" role="region" aria-labelledby="grant-history-caption" tabindex="0">
-        <table class="portal-table">
-          <caption id="grant-history-caption">Retained Viewer grant epochs revoked for {{ project.name }}</caption>
-          <thead>
-            <tr><th scope="col">Viewer SOEID</th><th scope="col">Account status</th><th scope="col">Granted</th><th scope="col">Granted by</th><th scope="col">Revoked</th><th scope="col">Revoked by</th></tr>
-          </thead>
-          <tbody>
-            {% for grant in grant_history %}
-              <tr>
-                <td><strong>{{ grant.viewer.soeid }}</strong></td>
-                <td>{% if grant.viewer.is_active %}{% include "portal/components/status-badge.html" with label="Active account" tone="positive" %}{% else %}{% include "portal/components/status-badge.html" with label="Account disabled" tone="danger" %}{% endif %}</td>
-                <td>{{ grant.created_at|date:"M j, Y, g:i a" }}</td>
-                <td>{{ grant.created_by.soeid }}</td>
-                <td>{{ grant.revoked_at|date:"M j, Y, g:i a" }}</td>
-                <td>{{ grant.revoked_by.soeid }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      {% if grant_history_page.previous_url or grant_history_page.next_url %}
-        {% include "portal/components/empty-state.html" with heading_id="grant-history-page-empty" heading_level=3 title="No revoked grants in these results" message="Revoked access changed. Use Previous or Next to continue." %}
+  <section class="portal-section" aria-labelledby="retained-history-heading">
+    <details class="portal-card">
+      <summary id="retained-history-heading"><strong>Retained access history</strong></summary>
+      <p>Revoked Viewer grant epochs remain available for audit. Open this section only when you need historical access details.</p>
+      {% if grant_history %}
+        <div class="portal-table-wrap" role="region" aria-labelledby="grant-history-caption" tabindex="0">
+          <table class="portal-table">
+            <caption id="grant-history-caption">Retained Viewer grant epochs revoked for {{ project.name }}, up to 25 per page</caption>
+            <thead>
+              <tr><th scope="col">Viewer SOEID</th><th scope="col">Account status</th><th scope="col">Granted</th><th scope="col">Granted by</th><th scope="col">Revoked</th><th scope="col">Revoked by</th></tr>
+            </thead>
+            <tbody>
+              {% for grant in grant_history %}
+                <tr>
+                  <td><strong>{{ grant.viewer.soeid }}</strong></td>
+                  <td>{% if grant.viewer.is_active %}{% include "portal/components/status-badge.html" with label="Active account" tone="positive" %}{% else %}{% include "portal/components/status-badge.html" with label="Account disabled" tone="danger" %}{% endif %}</td>
+                  <td>{{ grant.created_at|date:"M j, Y, g:i a" }}</td>
+                  <td>{{ grant.created_by.soeid }}</td>
+                  <td>{{ grant.revoked_at|date:"M j, Y, g:i a" }}</td>
+                  <td>{{ grant.revoked_by.soeid }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       {% else %}
-        {% include "portal/components/empty-state.html" with heading_id="grant-history-empty" heading_level=3 title="No revoked access" message="Retained grant epochs will appear here after a Viewer is removed." %}
+        {% if grant_history_page.previous_url or grant_history_page.next_url %}
+          {% include "portal/components/empty-state.html" with heading_id="grant-history-page-empty" heading_level=3 title="No revoked grants in these results" message="Revoked access changed. Use Previous or Next to continue." %}
+        {% else %}
+          {% include "portal/components/empty-state.html" with heading_id="grant-history-empty" heading_level=3 title="No revoked access" message="Retained grant epochs will appear here after a Viewer is removed." %}
+        {% endif %}
       {% endif %}
-    {% endif %}
-    {% include "portal/components/cursor-pagination.html" with page=grant_history_page pagination_label="Revoked Viewer access" item_label="revoked Viewer grants" %}
+      {% include "portal/components/cursor-pagination.html" with page=grant_history_page pagination_label="Revoked Viewer access" item_label="revoked Viewer grants" %}
+    </details>
   </section>
 {% endblock %}

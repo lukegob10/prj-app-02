@@ -14,6 +14,8 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from agora.persistence.access import active_viewer_grant, user_can_view_published
+from agora.persistence.analytics import capture_authorized_open
+from agora.persistence.enhancements import EnhancementAccessDenied
 from agora.persistence.models import (
     AuditEvent,
     Dashboard,
@@ -84,7 +86,7 @@ def issue_owner_preview(
             or dashboard.owner_id != viewer.id
         ):
             raise RenderAuthorizationDenied("render authorization is not available")
-        credential = _create_authorization(
+        credential, _ = _create_authorization(
             dashboard=dashboard,
             revision=revision,
             viewer=viewer,
@@ -128,7 +130,7 @@ def issue_published_view(
         )
         if not user_can_view_published(dashboard=dashboard, viewer=viewer, viewer_grant=grant):
             raise RenderAuthorizationDenied("render authorization is not available")
-        credential = _create_authorization(
+        credential, authorization = _create_authorization(
             dashboard=dashboard,
             revision=dashboard.published_revision,
             viewer=viewer,
@@ -136,13 +138,12 @@ def issue_published_view(
             audience=RenderAuthorization.Audience.VIEWER,
             issued_at=issued_at,
         )
-        AuditEvent.objects.create(
-            event_type="dashboard.view_started",
-            actor=viewer,
-            dashboard=dashboard,
-            revision=dashboard.published_revision,
-            metadata={"audience": RenderAuthorization.Audience.VIEWER},
-        )
+        try:
+            captured = capture_authorized_open(authorization_id=authorization.id)
+        except EnhancementAccessDenied as error:
+            raise RenderAuthorizationDenied("render authorization is not available") from error
+        if not captured:
+            raise RenderAuthorizationUnavailable("authorized open could not be captured")
         return credential
 
 
@@ -158,7 +159,10 @@ def resolve_render_authorization(
         raise RenderAuthorizationDenied("render authorization is not available")
     authorization = (
         RenderAuthorization.objects.select_related(
-            "viewer", "dashboard", "revision", "viewer_grant"
+            "viewer",
+            "dashboard",
+            "revision",
+            "viewer_grant",
         )
         .filter(token_digest=_digest(token), audience=audience)
         .first()
@@ -198,25 +202,36 @@ def _create_authorization(
     viewer_grant: ViewerGrant | None,
     audience: str,
     issued_at: datetime,
-) -> RenderCredential:
+) -> tuple[RenderCredential, RenderAuthorization]:
     expires_at = issued_at + timedelta(seconds=settings.AGORA_RENDER_AUTH_TTL_SECONDS)
     for _ in range(_TOKEN_ATTEMPTS):
         token = secrets.token_urlsafe(_TOKEN_BYTES)
         try:
             with transaction.atomic():
-                RenderAuthorization.objects.create(
+                authorization = RenderAuthorization.objects.create(
                     token_digest=_digest(token),
                     audience=audience,
                     viewer=viewer,
                     viewer_auth_version=viewer.auth_version,
                     viewer_grant=viewer_grant,
+                    owner_transfer_epoch_id=(
+                        dashboard.last_ownership_transfer_id if viewer_grant is None else None
+                    ),
                     dashboard=dashboard,
                     revision=revision,
+                    publication_version=(
+                        dashboard.publication_version
+                        if audience == RenderAuthorization.Audience.VIEWER
+                        else None
+                    ),
                     expires_at=expires_at,
                 )
         except IntegrityError:
             continue
-        return RenderCredential(token=token, audience=audience, expires_at=expires_at)
+        return (
+            RenderCredential(token=token, audience=audience, expires_at=expires_at),
+            authorization,
+        )
     raise RenderAuthorizationUnavailable("render authorization could not be issued")
 
 
@@ -237,6 +252,8 @@ def _authorization_is_current(
         return (
             authorization.viewer_grant_id is None
             and authorization.dashboard.owner_id == authorization.viewer_id
+            and authorization.owner_transfer_epoch_id
+            == authorization.dashboard.last_ownership_transfer_id
             and authorization.dashboard.state
             not in {Dashboard.State.ARCHIVED, Dashboard.State.DELETED}
         )
@@ -244,12 +261,17 @@ def _authorization_is_current(
         return False
     if authorization.dashboard.published_revision_id != authorization.revision_id:
         return False
-    if (
-        authorization.dashboard.owner_id != authorization.viewer_id
-        and authorization.viewer_grant_id is None
-    ):
-        # Pre-epoch credentials fail closed after the migration instead of becoming
-        # valid again through some later grant for the same viewer.
+    if authorization.dashboard.publication_version != authorization.publication_version:
+        return False
+    if authorization.dashboard.owner_id == authorization.viewer_id:
+        return (
+            authorization.viewer_grant_id is None
+            and authorization.owner_transfer_epoch_id
+            == authorization.dashboard.last_ownership_transfer_id
+        )
+    if authorization.viewer_grant_id is None or authorization.owner_transfer_epoch_id is not None:
+        # Pre-epoch credentials fail closed instead of becoming valid again
+        # through some later grant for the same viewer.
         return False
     return user_can_view_published(
         dashboard=authorization.dashboard,

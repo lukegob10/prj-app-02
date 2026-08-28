@@ -378,6 +378,7 @@ def test_render_authorization_binds_the_exact_active_epoch() -> None:
         dashboard=dashboard,
         revision=revision,
         viewer_grant=grant,
+        publication_version=1,
         expires_at=timezone.now(),
     )
     assert authorization.viewer_grant_id == grant.id

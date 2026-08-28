@@ -18,7 +18,11 @@ with one application instance drained.
 | Active-grant authorization checks | 250 requests/s | Mix owners, active viewers, revoked viewers, disabled users, and misses |
 | Shared with Me reads | 100 requests/s | 10–100 projects per viewer; bounded page sizes |
 | Grant/revoke mutations | 20 requests/s | 100 requests/s for 60 seconds; include duplicate and retry races |
-| Render starts | 50 requests/s | Exact pinned published revisions and token issuance |
+| Favorites / Recently viewed | 100 requests/s | Bounded top-N reads; include revoked and unpublished intersections |
+| Dashboard access-request queue | 50 requests/s | One selected Dashboard, keyset pages, sparse and full pages |
+| Ownership transfer | 5 requests/s | Race transfer against revision, Grant, request, and render issuance |
+| Render starts | 50 requests/s | Exact pinned revision plus Authorized Open/viewer-state capture |
+| Authorized-open aggregation | 1,000 rows/batch | Serialized checkpoint; measure rollup and retention batches off request path |
 | HTML delivery | 500 requests/s | Representative artifact sizes and cache-control policy |
 | CSV delivery | 100 requests/s | Representative multi-file dashboards and byte throughput |
 
@@ -52,10 +56,11 @@ owner may tighten them with a recorded SLO) are:
 | Oracle query latency p95 / p99 | ≤ 75 / 250 ms |
 | Oracle pool wait p95 | ≤ 25 ms; no pool exhaustion |
 | Revoke-to-next-check propagation | ≤ 1 second p99 on the primary authorization path |
-| Render authorization and audit write failures | 0 silent failures; alert and fail closed |
+| Render authorization / Authorized Open write failures | 0 silent failures; alert and fail closed |
 
-Also inspect query counts for representative pages, database execution plans for the active-grant
-and viewer-to-project indexes, connection churn, CPU/memory, storage latency, and artifact bytes/s.
+Also inspect query counts for representative pages, database execution plans for the active-grant,
+viewer-to-project, personal-list, Dashboard-scoped request, stale-after, and analytics-rollup
+indexes, connection churn, CPU/memory, storage latency, and artifact bytes/s.
 The bounded queryset tests are regression checks, not throughput evidence.
 
 ## Current production blockers
@@ -69,8 +74,9 @@ Capacity cannot honestly be claimed until the following are resolved and measure
   independently. A local filesystem is not a production multi-instance artifact tier.
 - Portal metadata/authorization and content byte delivery need independent scaling, health,
   timeout, and rate-limit policies while preserving the separate origins and security headers.
-- Render-authorization and audit retention/cleanup need bounded indexes, retention policy, and
-  operational jobs that cannot contend with hot authorization paths.
+- Authorized-open aggregation and 90-day raw retention need scheduled bounded invocations,
+  partition qualification, lag alerts, and execution-plan evidence without contending with hot
+  authorization paths. The schema and typed job boundaries do not themselves schedule work.
 - Observability is required: redacted request IDs, latency histograms, query and pool wait
   metrics, denial/error reasons, artifact throughput, and revocation propagation alerts.
 

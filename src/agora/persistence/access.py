@@ -182,15 +182,15 @@ def user_can_view_published(
 
 def _lock_active_owner(*, dashboard_id: UUID, actor_id: UUID) -> tuple[Dashboard, User]:
     """Resolve and lock an active owner without exposing deleted projects."""
-    actor = get_one_or_none(User.objects.select_for_update().filter(id=actor_id, is_active=True))
-    if actor is None:
-        raise ProjectAccessDenied(_GENERIC_ACCESS_FAILURE)
     dashboard = get_one_or_none(
         Dashboard.objects.select_for_update()
-        .filter(id=dashboard_id, owner_id=actor.id)
+        .filter(id=dashboard_id)
         .exclude(state=Dashboard.State.DELETED)
     )
     if dashboard is None:
+        raise ProjectAccessDenied(_GENERIC_ACCESS_FAILURE)
+    actor = get_one_or_none(User.objects.select_for_update().filter(id=actor_id, is_active=True))
+    if actor is None or dashboard.owner_id != actor.id:
         raise ProjectAccessDenied(_GENERIC_ACCESS_FAILURE)
     return dashboard, actor
 

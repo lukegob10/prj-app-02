@@ -15,6 +15,8 @@ _RESERVED_WINDOWS_STEMS = frozenset(
 )
 _MAX_LOGICAL_NAME_CODEPOINTS = 255
 _MAX_NAME_KEY_BYTES = 1024
+_MAX_DASHBOARD_TAG_CODEPOINTS = 40
+_MAX_DASHBOARD_TAG_KEY_CODEPOINTS = 80
 
 
 class InvalidSoeid(ValueError):
@@ -25,12 +27,24 @@ class InvalidLogicalName(ValueError):
     """Raised when a logical artifact name is unsafe or ambiguous."""
 
 
+class InvalidDashboardTag(ValueError):
+    """Raised when a dashboard tag cannot be represented canonically."""
+
+
 @dataclass(frozen=True, slots=True)
 class LogicalName:
     """A display name plus its platform-independent uniqueness key."""
 
     display: str
     comparison_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardTagName:
+    """A short display label plus its case-insensitive uniqueness key."""
+
+    display: str
+    key: str
 
 
 def canonicalize_soeid(value: str) -> str:
@@ -67,3 +81,25 @@ def normalize_logical_name(value: str) -> LogicalName:
     if len(comparison_key.encode("utf-8")) > _MAX_NAME_KEY_BYTES:
         raise InvalidLogicalName("logical name comparison key is too long")
     return LogicalName(display=display, comparison_key=comparison_key)
+
+
+def normalize_dashboard_tag(value: str) -> DashboardTagName:
+    """Return one whitespace-normalized, Unicode-stable dashboard tag.
+
+    The display label deliberately remains human-readable.  The separately
+    persisted key is NFKC/casefold normalized so uniqueness does not depend on
+    presentation casing.  Database slot and uniqueness constraints remain the
+    final concurrency boundary.
+    """
+    if not isinstance(value, str):
+        raise InvalidDashboardTag("tag must be text")
+    compatible = unicodedata.normalize("NFKC", value)
+    if any(unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in compatible):
+        raise InvalidDashboardTag("tag cannot contain control characters")
+    display = " ".join(compatible.split())
+    if not display or len(display) > _MAX_DASHBOARD_TAG_CODEPOINTS:
+        raise InvalidDashboardTag("tag must contain 1 through 40 characters")
+    key = unicodedata.normalize("NFKC", display.casefold())
+    if len(key) > _MAX_DASHBOARD_TAG_KEY_CODEPOINTS:
+        raise InvalidDashboardTag("normalized tag key is too long")
+    return DashboardTagName(display=display, key=key)

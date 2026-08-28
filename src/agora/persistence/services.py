@@ -281,14 +281,14 @@ def _commit_revision_metadata(
     prepared: Sequence[_PreparedArtifact],
 ) -> Revision:
     with transaction.atomic(durable=True):
+        dashboard = get_one_or_none(Dashboard.objects.select_for_update().filter(id=dashboard_id))
+        if dashboard is None or dashboard.owner_id != created_by_id:
+            raise RevisionCreationError("revision creator must own the dashboard")
         creator = get_one_or_none(
             User.objects.select_for_update().filter(id=created_by_id).only("id", "is_active")
         )
         if creator is None or not creator.is_active:
             raise RevisionCreationError("revision creator must be active")
-        dashboard = get_one_or_none(Dashboard.objects.select_for_update().filter(id=dashboard_id))
-        if dashboard is None or dashboard.owner_id != created_by_id:
-            raise RevisionCreationError("revision creator must own the dashboard")
         if dashboard.state not in _revision_accepting_states():
             raise RevisionCreationError("dashboard state does not accept revisions")
 

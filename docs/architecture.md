@@ -155,6 +155,36 @@ Revision creation, same-Dashboard publication/latest pointers, and complete immu
 sets. Later tickets add the user-facing lifecycle and publication workflows; AG-002 provides their
 durable boundary only.
 
+## Enhancement domain and analytics boundaries
+
+Migrations `0012` through `0014` are one linear forward chain. They add compact navigation and
+workflow state, make ownership an explicit audited transfer, and establish the single
+Authorized Open metric without changing the portal/content origin split:
+
+- `DashboardTag`, `DashboardFavorite`, and `DashboardViewerState` support bounded navigation.
+  New indicators compare the compact seen Publication Version with the Dashboard's current
+  version; they never scan render or audit history.
+- `AccessRequest` retains one lifecycle row per Dashboard/requester. Owner reads are scoped to one
+  exact currently owned Dashboard and use a deterministic keyset index, avoiding a join-and-sort
+  across every Dashboard an owner has.
+- Publication metadata and `stale_after` live on Dashboard. Freshness is derived at read time;
+  there is no clock-driven `is_stale` update.
+- `DashboardOwnershipTransfer` is an append-only chain. Transfer, revision, and Grant mutations
+  all lock Dashboard before User, while Oracle triggers authorize new writes against the current
+  owner. Historical actor fields are never rewritten.
+- A Published Viewer `RenderAuthorization` snapshots Publication Version and synchronously emits
+  one idempotent raw `AuthorizedOpen`. Bounded background calls maintain daily, viewer, and
+  Dashboard rollups and a monotonic checkpoint. Only aggregate query interfaces are available to
+  portal/admin code; raw rows have a guarded 90-day retention boundary.
+
+These are typed domain and query seams for later server-rendered pages, not a new service tier.
+No SPA, cache, queue, or synchronous popularity counter is introduced.
+
+This prerequisite lane intentionally does not retrofit the existing portal's numbered project,
+Grant, Revision, or administrator lists. Their separately completed bounded-read change must be
+integrated after this migration chain before the new bounded-work contract is treated as a release
+claim.
+
 ## Runtime and stack
 
 | Concern | Selected baseline | Support policy |

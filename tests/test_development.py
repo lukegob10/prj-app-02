@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -99,21 +100,34 @@ def test_windows_development_socket_uses_exclusive_address_binding(
     bound_socket = Mock()
     socket_factory = Mock(return_value=bound_socket)
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(development.socket, "socket", socket_factory)
+    monkeypatch.setattr(socket, "socket", socket_factory)
 
     assert development._bind_development_socket(config) is bound_socket
 
     socket_factory.assert_called_once_with(
-        family=development.socket.AF_INET,
-        type=development.socket.SOCK_STREAM,
+        family=socket.AF_INET,
+        type=socket.SOCK_STREAM,
     )
     bound_socket.setsockopt.assert_called_once_with(
-        development.socket.SOL_SOCKET,
-        development.socket.SO_EXCLUSIVEADDRUSE,
+        socket.SOL_SOCKET,
+        socket.SO_EXCLUSIVEADDRUSE,
         1,
     )
     bound_socket.bind.assert_called_once_with(("127.0.0.1", 8443))
     bound_socket.set_inheritable.assert_called_once_with(True)
+
+
+def test_non_windows_development_socket_uses_uvicorn_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = Mock()
+    bound_socket = Mock()
+    config.bind_socket.return_value = bound_socket
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    assert development._bind_development_socket(config) is bound_socket
+
+    config.bind_socket.assert_called_once_with()
 
 
 def test_development_source_version_tracks_sources_and_ignores_bytecode(tmp_path: Path) -> None:

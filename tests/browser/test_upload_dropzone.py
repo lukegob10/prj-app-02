@@ -99,34 +99,34 @@ def test_clicking_dropzone_opens_multiselect_file_chooser(page: Page) -> None:
     dropzone = page.locator("[data-upload-dropzone]")
     expect(dropzone).to_have_css("cursor", "pointer")
     expect(file_input).to_have_css("position", "absolute")
-    assert dropzone.evaluate(
-        """element => {
+    assert (
+        dropzone.evaluate(
+            """element => {
           const bounds = element.getBoundingClientRect();
           return document.elementFromPoint(bounds.left + 12, bounds.top + 12).tagName;
         }"""
-    ) == "INPUT"
+        )
+        == "INPUT"
+    )
 
     with page.expect_file_chooser() as chooser_info:
         dropzone.click(position={"x": 12, "y": 12})
-    chooser_info.value.set_files(
-        [
-            {
-                "name": "dashboard.html",
-                "mimeType": "text/html",
-                "buffer": b"<html></html>",
-            },
-            {
-                "name": "sales.csv",
-                "mimeType": "text/csv",
-                "buffer": b"month,total\nJan,10\n",
-            },
-        ]
-    )
+    chooser_files: list[FilePayload] = [
+        {
+            "name": "dashboard.html",
+            "mimeType": "text/html",
+            "buffer": b"<html></html>",
+        },
+        {
+            "name": "sales.csv",
+            "mimeType": "text/csv",
+            "buffer": b"month,total\nJan,10\n",
+        },
+    ]
+    chooser_info.value.set_files(chooser_files)
 
     assert file_input.get_attribute("multiple") == ""
-    expect(page.locator("[data-upload-list] strong")).to_have_text(
-        ["dashboard.html", "sales.csv"]
-    )
+    expect(page.locator("[data-upload-list] strong")).to_have_text(["dashboard.html", "sales.csv"])
     expect(page.locator("[data-upload-summary]")).to_contain_text("2 files selected")
 
 

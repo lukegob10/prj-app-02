@@ -33,7 +33,7 @@ window is a security-contract change, not an unchecked environment toggle.
 After installing locked dependencies, create `.env` once:
 
 ```powershell
-uv run python scripts/bootstrap_env.py
+uv run --locked python scripts/bootstrap_env.py
 ```
 
 The script uses the operating system's cryptographic random source, prompts for the local Oracle
@@ -44,6 +44,22 @@ restricts the resulting file to the owner.
 To rotate local values, stop the services, move the existing `.env` to a secure temporary
 location or delete it intentionally, then run the bootstrap again. Rotate the Oracle password
 through the database's approved credential process and update the matching `TA_<ENV>_PASSWORD`.
+
+## Test-only destructive acknowledgement
+
+`AGORA_TEST_DATABASE_RESET_ALLOWED` is not application runtime configuration and is deliberately
+absent from `RuntimeConfig`. Before database setup, the test harness requires both a raw process
+value of `AGORA_ENVIRONMENT=test` and the acknowledgement's exact `true` value for any
+database-bearing pytest selection. The canonical `scripts/check.py` command applies the same
+preflight before its first subprocess, so its migration step cannot write first. Pytest then
+verifies the resolved Django environment again before flushing the reused Oracle validation
+schema. The local bootstrap leaves the acknowledgement `false`; enable it only after confirming
+that the package-selected profile resolves to a disposable, dedicated test schema. Pure
+non-database test selections remain available without the acknowledgement.
+
+CI's `ENV=PROD` is the existing `treasury_analytics` profile identifier, not Agora's application
+environment and not permission to touch production data. The CI reset opt-in is valid only while
+that runner-local profile resolves to a dedicated disposable validation schema.
 
 ## Failure behavior
 

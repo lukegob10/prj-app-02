@@ -49,14 +49,14 @@ First copy the example to a deployment-owned, ignored profile and replace only f
 origins, timing, and weights. Validate its shape without making a network request:
 
 ```powershell
-uv run python -m scripts.load.agora_capacity --profile path/to/staging-capacity.json
+uv run --locked python -m scripts.load.agora_capacity --profile path/to/staging-capacity.json
 ```
 
 For an explicitly authorized staging run, inject the four synthetic owner/viewer identity and
 password variables named by the profile, create the output directory, and choose a new event file:
 
 ```powershell
-uv run python -m scripts.load.agora_capacity `
+uv run --locked python -m scripts.load.agora_capacity `
   --profile path/to/staging-capacity.json `
   --execute `
   --allow-mutations `

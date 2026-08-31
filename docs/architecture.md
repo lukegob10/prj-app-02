@@ -87,7 +87,7 @@ supported-browser tests and any additional egress controls required by the deplo
 The source tree encodes the split with distinct settings, URLconfs, ASGI applications, and
 middleware. The WSGI callables remain compatibility/diagnostic interfaces only; the supported
 production runtime is the proxy-hardened ASGI path documented in [`deployment.md`](./deployment.md).
-Both compositions load the shared persistence models, but the content composition
+Both compositions load the shared core-domain models, but the content composition
 has no sessions, templates, mutation routes, or portal middleware. Each composition exposes only
 `/health/live/` and `/health/ready/` as its unauthenticated operational probes. Liveness is a
 constant response with no Oracle or storage dependency; readiness single-flights the database
@@ -121,7 +121,7 @@ src/agora/urls/content.py    exact health probes plus authorized package routes 
 src/agora/health.py          dependency-safe liveness/readiness responses
 src/agora/rendering/         render authorization, delivery, CSP, and sandbox policy
 src/agora/portal/            trusted project, upload, preview, identity, and admin UI
-src/agora/persistence/       constrained metadata, domain services, migrations, private storage
+src/agora/core/              constrained metadata, domain services, migrations, private storage
 packages/treasury-analytics/ local development implementation of the managed connection API
 ```
 

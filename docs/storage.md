@@ -34,7 +34,7 @@ Known rollback removes unowned files idempotently. If cleanup fails or the proce
 reservation remains. Reconcile expired reservations with a bounded command:
 
 ```powershell
-uv run python manage.py cleanup_artifact_reservations --limit 100
+uv run --locked python manage.py cleanup_artifact_reservations --limit 100
 ```
 
 Compensation and the command lock each reservation before deciding ownership, so an ambiguous

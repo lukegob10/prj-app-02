@@ -6,9 +6,10 @@ and reverse-proxy SSO are not enabled.
 
 ## Identity boundary
 
-The only application identity key is the SOEID stored on `persistence.User`. Login and
-administrator forms pass their value through the same canonicalizer: surrounding ASCII
-whitespace is trimmed, ASCII letters are uppercased, and the value must match
+The only application identity key is the SOEID stored on `agora.core.models.User` (whose stable
+Django model label remains `persistence.User`). Login and administrator forms pass their value
+through the same canonicalizer: surrounding ASCII whitespace is trimmed, ASCII letters are
+uppercased, and the value must match
 `^[A-Z0-9][A-Z0-9._-]{0,63}$`. The database stores only that canonical form and enforces
 uniqueness.
 
@@ -22,7 +23,7 @@ cannot consume a portal session.
 Run the bootstrap command after applying migrations and only from a protected operator terminal:
 
 ```powershell
-uv run python manage.py bootstrap_admin --soeid ASSIGNED_SOEID
+uv run --locked python manage.py bootstrap_admin --soeid ASSIGNED_SOEID
 ```
 
 The command prompts for the password and confirmation without echoing them. It accepts no

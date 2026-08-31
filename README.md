@@ -30,6 +30,12 @@ Read the normative [product contract](./docs/product-contract.md),
 [architecture](./docs/architecture.md), and [threat model](./docs/threat-model.md) before
 adding features.
 
+Maintainers should start with the [maintainer handoff](./docs/maintaining.md) for the canonical
+setup, local run, checks, schema lifecycle, deploy interface, and subsystem ownership map.
+The generated Oracle artifact is documented in [`database/README.md`](./database/README.md), and
+the production image, entrypoint, and health contract are documented in
+[`docs/deployment.md`](./docs/deployment.md).
+
 Portal page structure and reusable component conventions are recorded in
 [docs/ui-conventions.md](./docs/ui-conventions.md).
 
@@ -56,9 +62,9 @@ content host.
 ```powershell
 uv sync --locked --all-groups
 uv run --locked python -m playwright install chromium
-uv run python scripts/bootstrap_env.py
-uv run python manage.py migrate
-uv run python manage.py bootstrap_admin --soeid ASSIGNED_SOEID
+uv run --locked python scripts/bootstrap_env.py
+uv run --locked python manage.py migrate --noinput
+uv run --locked python manage.py bootstrap_admin --soeid ASSIGNED_SOEID
 ```
 
 `uv sync` installs the local `treasury_analytics` implementation inside Agora's `.venv`
@@ -76,7 +82,7 @@ export its development certificate, then start the TLS-backed Python portal:
 ```powershell
 dotnet dev-certs https --trust
 dotnet dev-certs https --export-path .local/tls/localhost.pem --format Pem --no-password
-uv run python scripts/run_local.py
+uv run --locked python scripts/run_local.py
 ```
 
 Open `https://localhost:8443`. The single launcher starts the Uvicorn-backed portal there and the
@@ -102,10 +108,10 @@ authentication, sessions, CSRF, templates, and persistence; Uvicorn is the netwo
 runs Django's ASGI application. The TLS launcher uses both and automatically reloads Python source
 changes.
 
-For a read-only UI preview when the system hosts file cannot be edited, run:
+For an optional read-only UI diagnostic when the system hosts file cannot be edited, run:
 
 ```powershell
-uv run python scripts/run_preview.py
+uv run --locked python scripts/run_preview.py
 ```
 
 Open `http://127.0.0.1:8002`. Django automatically restarts this preview when Python files
@@ -116,8 +122,8 @@ origin—not this convenience preview—for login or authenticated testing.
 To run either entry point separately for diagnostics, use:
 
 ```powershell
-uv run python scripts/run_https.py
-uv run python scripts/run_content_https.py
+uv run --locked python scripts/run_https.py
+uv run --locked python scripts/run_content_https.py
 ```
 
 The content root intentionally returns 404. Only an iframe URL minted by an authorized portal
@@ -126,20 +132,29 @@ session, login, mutation, administration, or template middleware.
 
 ## Checks
 
-With the configured Oracle profile reachable, run the complete quality gate:
+The canonical quality gate used by CI includes database-bearing tests that flush the selected
+schema. The generated `.env` keeps
+`AGORA_TEST_DATABASE_RESET_ALLOWED=false`; after confirming that the package profile resolves to
+a disposable, dedicated Agora validation schema, opt in for the quality-gate process without
+changing the local-development defaults:
 
 ```powershell
-uv run python scripts/check.py
+$env:AGORA_ENVIRONMENT = "test"
+$env:AGORA_TEST_DATABASE_RESET_ALLOWED = "true"
+uv run --locked python scripts/check.py
 ```
 
-Focused commands are also available:
+The canonical gate fails closed before its first subprocess unless both conditions hold; the
+pytest harness repeats the same preflight before database setup.
+
+Use individual commands only to diagnose a failed gate:
 
 ```powershell
 uv lock --check
-uv run ruff format --check .
-uv run ruff check .
-uv run mypy src tests scripts deploy
-uv run pytest
+uv run --locked ruff format --check .
+uv run --locked ruff check .
+uv run --locked mypy src tests scripts deploy
+uv run --locked pytest --browser chromium
 uv build
 ```
 
@@ -168,7 +183,7 @@ and rollback contract are documented in [docs/deployment.md](./docs/deployment.m
 Expired storage reservations can be reconciled idempotently without scanning arbitrary paths:
 
 ```powershell
-uv run python manage.py cleanup_artifact_reservations --limit 100
+uv run --locked python manage.py cleanup_artifact_reservations --limit 100
 ```
 
 The private filesystem contract, durability assumptions, and backup boundary are documented in

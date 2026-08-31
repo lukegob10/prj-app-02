@@ -55,8 +55,9 @@ uv run --locked python scripts/check.py
 
 `scripts/check.py` runs, in order, the lock check, Ruff format and lint, strict mypy, bytecode
 compilation, portal and content Django checks, static collection, migration-drift detection,
-migration application, the Chromium-enabled pytest suite, and `uv build`. It stops at the first
-failure. Before launching even the lock check, it requires the two disposable-schema opt-ins below;
+the offline Oracle-schema artifact check, migration application, the Chromium-enabled pytest
+suite, and `uv build`. It stops at the first failure. Before launching even the lock check, it
+requires the two disposable-schema opt-ins below;
 this prevents its earlier migration step from writing before pytest's collection guard. CI uses
 the same command from `.github/workflows/ci.yml` on a self-hosted Linux runner with an
 Oracle-capable `PROD` profile.
@@ -67,7 +68,7 @@ Run an individual gate only to diagnose a failure; these commands do not replace
 uv lock --check
 uv run --locked ruff format --check .
 uv run --locked ruff check .
-uv run --locked mypy src tests scripts
+uv run --locked mypy src tests scripts deploy
 uv run --locked pytest --browser chromium
 uv run --locked pytest tests/browser --browser chromium --no-cov
 uv build

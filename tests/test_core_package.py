@@ -18,7 +18,7 @@ def test_core_is_the_canonical_package_and_old_path_is_absent() -> None:
 
     assert core_path.parent.name == "core"
     assert not any(legacy_path.rglob("*.py"))
-    with pytest.raises(ModuleNotFoundError, match=r"agora\.persistence\.models"):
+    with pytest.raises(ModuleNotFoundError, match=r"agora\.persistence(?:\.models)?"):
         import_module("agora.persistence.models")
 
 

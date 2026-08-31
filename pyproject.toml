@@ -38,6 +38,7 @@ packages = ["src/agora"]
 
 [tool.hatch.build.targets.sdist]
 include = [
+    "/database",
     "/src",
     "/tests",
     "/scripts",

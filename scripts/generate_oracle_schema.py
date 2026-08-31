@@ -73,6 +73,17 @@ _KNOWN_RUNPYTHON_BY_MIGRATION: Final[dict[str, frozenset[str]]] = {
     "persistence.0013_ownership_transfer_invariants": frozenset({"noop"}),
     "persistence.0014_usage_analytics_schema": frozenset({"_backfill_viewer_publication_versions"}),
 }
+# This repository-defined operation has audited no-op database methods; its state mutation is
+# already reflected by ProjectState. Keep the allowlist tied to its historical migration identity.
+_KNOWN_STATE_ONLY_OPERATIONS_BY_MIGRATION: Final[dict[str, frozenset[str]]] = {
+    "persistence.0010_apply_agora_project_table_prefix": frozenset({"AlterExternalModelTable"}),
+}
+_STATE_DERIVED_OPERATION_MODULES: Final[frozenset[str]] = frozenset(
+    {
+        "django.db.migrations.operations.fields",
+        "django.db.migrations.operations.models",
+    }
+)
 
 
 class UnsupportedMigrationOperation(RuntimeError):
@@ -157,7 +168,7 @@ def _load_django() -> tuple[Any, Any, Any, Any, ConnectionOperatorState]:
         django.setup()
         loader = MigrationLoader(None, replace_migrations=False)
         state = loader.project_state()
-        connection = connections["default"]
+        connection: Any = connections["default"]
         connection_state = _snapshot_connection_operator_state(connection)
 
         # Oracle's operators descriptor probes a live connection the first time a check constraint
@@ -248,6 +259,13 @@ def _is_known_runpython(label: str, operation: Any) -> bool:
     return name in _KNOWN_RUNPYTHON_BY_MIGRATION.get(label, frozenset())
 
 
+def _is_known_state_only_operation(label: str, operation: Any) -> bool:
+    return type(operation).__name__ in _KNOWN_STATE_ONLY_OPERATIONS_BY_MIGRATION.get(
+        label,
+        frozenset(),
+    )
+
+
 def _final_table_names(state: Any) -> tuple[dict[str, str], dict[str, str]]:
     """Build historical-to-final identifier mappings from Django's final migration state."""
 
@@ -295,6 +313,8 @@ def _replace_identifiers(
 def _collect_raw_sql(loader: Any, state: Any, keys: Iterable[tuple[str, str]]) -> RawSqlObjects:
     """Collect latest migration-owned Oracle objects and reject unknown executable work."""
 
+    from django.db.migrations.operations.fields import FieldOperation
+    from django.db.migrations.operations.models import IndexOperation, ModelOperation
     from django.db.migrations.operations.special import RunPython, RunSQL
 
     default_to_final, legacy_to_final = _final_table_names(state)
@@ -323,8 +343,21 @@ def _collect_raw_sql(loader: Any, state: Any, keys: Iterable[tuple[str, str]]) -
                     skipped.append(f"{label}: RunPython {name} (applied by Django migrations)")
                     continue
 
-                if not isinstance(database_operation, RunSQL):
+                operation_type = type(database_operation)
+                if operation_type.__module__ in _STATE_DERIVED_OPERATION_MODULES and isinstance(
+                    database_operation,
+                    (FieldOperation, IndexOperation, ModelOperation),
+                ):
                     continue
+
+                if _is_known_state_only_operation(label, database_operation):
+                    continue
+
+                if not isinstance(database_operation, RunSQL):
+                    raise UnsupportedMigrationOperation(
+                        f"{label} contains unsupported database operation "
+                        f"{operation_type.__module__}.{operation_type.__qualname__}"
+                    )
 
                 for original_sql in _sql_values(database_operation.sql):
                     sql = _replace_identifiers(

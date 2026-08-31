@@ -6,18 +6,20 @@ application-owned Oracle schema, the generated SQL evidence in
 
 ## Authority and generated evidence
 
-The Django migration graph is the only schema authoring surface. The `persistence` app's
-checked-in migrations, together with the migrations for the installed Django framework apps,
-define tables, columns, defaults, indexes, constraints, identity/sequence behavior, and the
-Oracle-specific trigger bodies. A schema change starts with a forward migration and the model
-state that migration records; it must not start with an edit to `schema.sql`.
+The Django migration graph is the only schema authoring surface. The canonical migration modules
+live in `src/agora/core/migrations/`; their intentionally preserved Django app label is
+`persistence` for installed-database compatibility. Those checked-in migrations, together with
+the migrations for the installed Django framework apps, define tables, columns, defaults,
+indexes, constraints, identity/sequence behavior, and the Oracle-specific trigger bodies. A
+schema change starts with a forward migration and the model state that migration records; it must
+not start with an edit to `schema.sql`.
 
 `database/oracle/schema.sql` is deterministic, generated evidence for the final migration state,
 not a second source of truth. It is produced from the current Django/Oracle backend and migration
 graph by:
 
 ```text
-python scripts/generate_oracle_schema.py
+uv run --locked python scripts/generate_oracle_schema.py
 ```
 
 The generator replaces the artifact in place and preserves its generated/provenance header. Do
@@ -26,7 +28,7 @@ change, regenerate it, review the diff, and commit the artifact with the migrati
 offline drift check is:
 
 ```text
-python scripts/generate_oracle_schema.py --check
+uv run --locked python scripts/generate_oracle_schema.py --check
 ```
 
 `--check` is mutation-free, deterministic, and does not load Oracle credentials or open a network
@@ -37,9 +39,9 @@ Oracle schema artifact is up to date: database/oracle/schema.sql
 ```
 
 When the artifact is stale it exits `1` and prints a concise command to run
-`uv run python scripts/generate_oracle_schema.py`. `scripts/check.py` runs this same check before
-the live-Oracle migration and test gates. A repository-only pass therefore validates reproducible
-generation, but it does not prove that an Oracle server accepts or compiles the SQL.
+`uv run --locked python scripts/generate_oracle_schema.py`. `scripts/check.py` runs this same
+check before the live-Oracle migration and test gates. A repository-only pass therefore validates
+reproducible generation, but it does not prove that an Oracle server accepts or compiles the SQL.
 
 The supported production installation and upgrade path is Django's migration executor, not raw
 execution of this file. The SQL artifact is suitable for DBA review, controlled rehearsal, and
@@ -86,9 +88,10 @@ The framework split is intentional. `auth`, `contenttypes`, and `sessions` are i
 portal settings and are included in the same application-owned schema. `django_migrations` is the
 migration recorder, not an optional administrative table. `messages` and `staticfiles` are
 installed services without database tables here, and `admin` is not installed, so there is no
-`django_admin_log` table in this contract. The content composition uses only the `persistence` app
-but points at the same Oracle schema. No vendor, reporting, or unrelated shared-schema tables are
-owned by this runbook.
+`django_admin_log` table in this contract. The content composition installs only the canonical
+`agora.core` domain app (whose historical Django label remains `persistence`) and points at the
+same Oracle schema. No vendor, reporting, or unrelated shared-schema tables are owned by this
+runbook.
 
 The custom Oracle backend selects the project-prefixed migration recorder when it first connects.
 The historical 0009/0010 rename migrations are the only supported transition from old unprefixed
@@ -136,7 +139,7 @@ after backup and DBA approval:
 2. From the repository root, run the offline artifact check. It requires no Oracle secret:
 
    ```text
-   python scripts/generate_oracle_schema.py --check
+   uv run --locked python scripts/generate_oracle_schema.py --check
    ```
 
 3. Confirm the planned graph against the target schema:
@@ -216,17 +219,17 @@ Useful owner-scoped checks (adapt the `LIKE` escape to the SQL client) are:
 ```sql
 SELECT table_name
 FROM user_tables
-WHERE table_name LIKE 'TB\_TA\_AGORA\_%' ESCAPE '\\'
+WHERE table_name LIKE 'TB\_TA\_AGORA\_%' ESCAPE '\'
 ORDER BY table_name;
 
 SELECT object_name, object_type, status
 FROM user_objects
-WHERE object_name LIKE 'AGORA\_%' ESCAPE '\\'
+WHERE object_name LIKE 'AGORA\_%' ESCAPE '\'
 ORDER BY object_type, object_name;
 
 SELECT trigger_name, table_name, status
 FROM user_triggers
-WHERE table_name LIKE 'TB\_TA\_AGORA\_%' ESCAPE '\\'
+WHERE table_name LIKE 'TB\_TA\_AGORA\_%' ESCAPE '\'
 ORDER BY trigger_name;
 
 SELECT name, type, line, position, text
@@ -236,12 +239,12 @@ ORDER BY name, sequence;
 
 SELECT table_name, constraint_name, constraint_type, status, deferrable, deferred
 FROM user_constraints
-WHERE table_name LIKE 'TB\_TA\_AGORA\_%' ESCAPE '\\'
+WHERE table_name LIKE 'TB\_TA\_AGORA\_%' ESCAPE '\'
 ORDER BY table_name, constraint_name;
 
 SELECT table_name, column_name, generation_type
 FROM user_tab_identity_cols
-WHERE table_name LIKE 'TB\_TA\_AGORA\_%' ESCAPE '\\'
+WHERE table_name LIKE 'TB\_TA\_AGORA\_%' ESCAPE '\'
 ORDER BY table_name, column_name;
 ```
 
@@ -316,8 +319,8 @@ prove a live Oracle apply in this environment. Before a production handoff, a DB
 disposable-schema rehearsal using the same Oracle release/patch, character sets, time-zone setup,
 Treasury package/profile, and privilege model:
 
-1. Apply the full framework-plus-`persistence` migration graph from an empty schema and verify
-   the recorder has every expected applied migration.
+1. Apply the full framework-plus-domain migration graph from an empty schema and verify the
+   recorder has every expected applied migration under the historical `persistence` app label.
 2. Compare the 25 tables, columns, types, nullability/defaults, indexes/expressions,
    constraints/deferred state, identities/sequences, and triggers against `schema.sql` and the
    owner dictionary.

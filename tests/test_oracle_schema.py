@@ -214,6 +214,20 @@ def test_render_restores_wrapper_recorder_and_runtime_model_metadata(
     from django.db.migrations.recorder import MigrationRecorder
 
     connection = connections["default"]
+    recorder_before = MigrationRecorder.Migration._meta.db_table
+    runtime_through = Group.permissions.through
+    runtime_through_before = runtime_through._meta.db_table
+    environment_before = dict(os.environ)
+
+    for name in ("operators", "pattern_ops"):
+        monkeypatch.delitem(connection.__dict__, name, raising=False)
+    render_schema()
+    assert "operators" not in connection.__dict__
+    assert "pattern_ops" not in connection.__dict__
+    assert MigrationRecorder.Migration._meta.db_table == recorder_before
+    assert runtime_through._meta.db_table == runtime_through_before
+    assert dict(os.environ) == environment_before
+
     operators_sentinel = object()
     pattern_ops_sentinel = object()
     monkeypatch.setitem(connection.__dict__, "operators", operators_sentinel)
@@ -222,11 +236,6 @@ def test_render_restores_wrapper_recorder_and_runtime_model_metadata(
         name: (name in connection.__dict__, connection.__dict__.get(name))
         for name in ("operators", "pattern_ops")
     }
-    recorder_before = MigrationRecorder.Migration._meta.db_table
-    runtime_through = Group.permissions.through
-    runtime_through_before = runtime_through._meta.db_table
-    environment_before = dict(os.environ)
-
     render_schema()
     render_schema()
 
@@ -263,6 +272,22 @@ def test_unknown_runpython_fails_closed() -> None:
     with pytest.raises(
         generate_oracle_schema.UnsupportedMigrationOperation,
         match=r"testapp\.0001_test.*unsupported RunPython",
+    ):
+        generate_oracle_schema._collect_raw_sql(loader, state, (migration_key,))
+
+
+def test_unknown_database_operation_fails_closed() -> None:
+    from django.db.migrations.operations.base import Operation
+
+    migration_key = ("testapp", "0001_test")
+    loader = SimpleNamespace(
+        graph=SimpleNamespace(nodes={migration_key: SimpleNamespace(operations=[Operation()])})
+    )
+    state = SimpleNamespace(apps=SimpleNamespace(get_models=lambda **_kwargs: ()))
+
+    with pytest.raises(
+        generate_oracle_schema.UnsupportedMigrationOperation,
+        match=r"testapp\.0001_test.*unsupported database operation.*\.Operation",
     ):
         generate_oracle_schema._collect_raw_sql(loader, state, (migration_key,))
 

@@ -43,6 +43,10 @@ CHECKS = (
         "migration drift",
         (sys.executable, "manage.py", "makemigrations", "--check", "--dry-run"),
     ),
+    Check(
+        "Oracle schema artifact",
+        (sys.executable, "scripts/generate_oracle_schema.py", "--check"),
+    ),
     Check("migration apply", (sys.executable, "manage.py", "migrate", "--noinput")),
     Check("tests", ("pytest", "--browser", "chromium")),
     Check("package build", ("uv", "build")),

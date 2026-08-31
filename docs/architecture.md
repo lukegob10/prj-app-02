@@ -225,5 +225,7 @@ dependencies.
 - [RFC 6454 web origin model](https://www.rfc-editor.org/rfc/rfc6454)
 - [Django user-uploaded content guidance](https://docs.djangoproject.com/en/5.2/topics/security/#user-uploaded-content)
 
-The database portion of ADR 0001 is superseded by ADR 0002. ECS topology, production high
-availability, reverse-proxy SSO, and final production packaging remain explicitly out of scope.
+The database portion of ADR 0001 is superseded by ADR 0002. Platform-specific orchestration
+(including ECS), production high availability, reverse-proxy SSO, and environment qualification
+remain out of scope; [`deployment.md`](deployment.md) defines the supported container and process
+contract.

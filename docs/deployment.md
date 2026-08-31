@@ -127,7 +127,7 @@ After both services and the portal static adapter are running, execute the check
 release checkout, never from inside the runtime image:
 
 ```sh
-python scripts/smoke_deploy.py \
+uv run --locked python scripts/smoke_deploy.py \
   --portal-origin "$AGORA_PORTAL_ORIGIN" \
   --content-origin "$AGORA_CONTENT_ORIGIN" \
   --timeout 5

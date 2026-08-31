@@ -145,20 +145,20 @@ after backup and DBA approval:
 3. Confirm the planned graph against the target schema:
 
    ```text
-   uv run python manage.py migrate --plan --database default
+   uv run --locked python manage.py migrate --plan --database default
    ```
 
 4. Apply the migration graph through Django, in one controlled process:
 
    ```text
-   uv run python manage.py migrate --noinput --database default
+   uv run --locked python manage.py migrate --noinput --database default
    ```
 
 5. Confirm the recorder and final schema state:
 
    ```text
-   uv run python manage.py showmigrations --database default
-   uv run python manage.py makemigrations --check --dry-run
+   uv run --locked python manage.py showmigrations --database default
+   uv run --locked python manage.py makemigrations --check --dry-run
    ```
 
 6. Complete the live verification in this document before enabling either service or accepting
@@ -181,8 +181,9 @@ Forward migration is the default release operation:
 3. Drain or stop all Agora processes for migrations that rename tables or replace trigger bodies,
    especially the historical 0009/0010 namespace transition. Run exactly one migration executor;
    do not let old application processes race a recorder-table rename.
-4. Apply the plan with `uv run python manage.py migrate --noinput --database default` and retain
-   the command output, migration rows, and Oracle dictionary checks for the release record.
+4. Apply the plan with
+   `uv run --locked python manage.py migrate --noinput --database default` and retain the command
+   output, migration rows, and Oracle dictionary checks for the release record.
 5. Verify trigger status/compilation, constraints, indexes, identity/sequence metadata, and the
    prefixed recorder as described below. Run focused Oracle-backed tests where the environment
    permits.
@@ -266,12 +267,12 @@ backup, plan review, and a data preflight. For example, to rehearse reversal of 
 tip to 0016:
 
 ```text
-uv run python manage.py migrate persistence 0016_guard_initial_grant_revoker --plan --database default
-uv run python manage.py migrate persistence 0016_guard_initial_grant_revoker --database default
+uv run --locked python manage.py migrate persistence 0016_guard_initial_grant_revoker --plan --database default
+uv run --locked python manage.py migrate persistence 0016_guard_initial_grant_revoker --database default
 ```
 
 Use the exact target migration name for the release under test; never guess a number. A full
-`uv run python manage.py migrate persistence zero --plan --database default` / apply cycle is only
+`uv run --locked python manage.py migrate persistence zero --plan --database default` / apply cycle is only
 for an empty disposable schema, followed by a fresh forward install. Never point that operation at
 production or a shared test schema. Capture the plan and verify the schema after both directions.
 

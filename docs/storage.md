@@ -1,6 +1,7 @@
 # Private artifact storage operations
 
-AG-002 stores hostile HTML/CSV bytes under the absolute `AGORA_ARTIFACT_ROOT`. This root is a
+AG-002 stores hostile dashboard-package bytes under the absolute `AGORA_ARTIFACT_ROOT`. A package
+contains one HTML entry point and optional CSV, CSS, image, and font artifacts. This root is a
 private application data boundary, not Django media/static content, a document root, or a raw URL.
 Only metadata plus a later authorization policy may select an artifact; AG-002 exposes no HTTP
 artifact route.

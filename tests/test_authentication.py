@@ -388,7 +388,7 @@ def test_successful_login_rotates_session_and_uses_safe_next_redirect(
     assert client.session.session_key != old_session_key
     assert client.session["anonymous_marker"] == "retained"
     assert client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).status_code == 200
-    assert b"Welcome back, ADMIN.1" in client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    assert b"Dashboard workspace" in client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
     assert AuditEvent.objects.filter(event_type="auth.login.succeeded", actor_id=admin.id).exists()
 
 
@@ -432,16 +432,16 @@ def test_post_logout_flushes_session_and_get_logout_is_non_mutating(
     client = Client()
     login_client(client, "ADMIN.1", password)
     authenticated = client.get(reverse("home"), HTTP_HOST=PORTAL_HOST)
-    assert b"Welcome back" in authenticated.content
+    assert b"Dashboard workspace" in authenticated.content
 
     get_response = client.get(reverse("logout"), HTTP_HOST=PORTAL_HOST)
     assert get_response.status_code == 405
-    assert b"Welcome back" in client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    assert b"Dashboard workspace" in client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
 
     post_response = client.post(reverse("logout"), HTTP_HOST=PORTAL_HOST)
     assert post_response.status_code == 302
     assert post_response["Location"] == "/login/"
-    assert b"Welcome back" not in client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    assert b"Dashboard workspace" not in client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
     assert AuditEvent.objects.filter(event_type="auth.logout", actor_id=admin.id).exists()
 
 
@@ -613,21 +613,25 @@ def test_disabled_session_does_not_revive_after_reenable(
     login_client(admin_client, "ADMIN.1", admin_password)
 
     assert (
-        b"Welcome back, PERSON.1"
-        in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+        b"Dashboard workspace" in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
     )
     disable_user(actor_id=admin.id, target_id=target.id)
-    assert b"Welcome back" not in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    assert (
+        b"Dashboard workspace"
+        not in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    )
 
     enable_user(actor_id=admin.id, target_id=target.id)
-    assert b"Welcome back" not in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    assert (
+        b"Dashboard workspace"
+        not in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    )
     assert target_client.session.session_key is None
 
     fresh_login = login_client(target_client, "PERSON.1", target_password)
     assert fresh_login.status_code == 302
     assert (
-        b"Welcome back, PERSON.1"
-        in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+        b"Dashboard workspace" in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
     )
 
 
@@ -639,17 +643,21 @@ def test_password_reset_invalidates_existing_session(
     target, target_password = regular_identity
     target_client = Client()
     login_client(target_client, "PERSON.1", target_password)
-    assert b"Welcome back" in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    assert (
+        b"Dashboard workspace" in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    )
 
     replacement = strong_password()
     reset_user_password(actor_id=admin.id, target_id=target.id, password=replacement)
-    assert b"Welcome back" not in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    assert (
+        b"Dashboard workspace"
+        not in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+    )
 
     assert login_client(target_client, "PERSON.1", target_password).status_code == 200
     assert login_client(target_client, "PERSON.1", replacement).status_code == 302
     assert (
-        b"Welcome back, PERSON.1"
-        in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
+        b"Dashboard workspace" in target_client.get(reverse("home"), HTTP_HOST=PORTAL_HOST).content
     )
 
 
@@ -942,7 +950,7 @@ def test_portal_does_not_honor_remote_identity_headers(
     )
     assert response.status_code == 200
     assert b"Sign-in failed. Check your SOEID and password." in response.content
-    assert b"Welcome back" not in response.content
+    assert b"Dashboard workspace" not in response.content
 
 
 def test_missing_target_and_non_admin_service_calls_fail_closed(

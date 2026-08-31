@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
@@ -23,6 +24,7 @@ from agora.persistence.enhancements import (
 )
 from agora.persistence.models import (
     AccessRequest,
+    Artifact,
     AuditEvent,
     Dashboard,
     DashboardOwnershipTransfer,
@@ -31,6 +33,7 @@ from agora.persistence.models import (
     ViewerGrant,
 )
 from agora.persistence.pagination import CursorPage
+from agora.persistence.storage import StorageKey
 from agora.rendering.authorization import (
     RenderAuthorizationDenied,
     issue_owner_preview,
@@ -57,8 +60,17 @@ def _client(user: User, *, enforce_csrf_checks: bool = False) -> Client:
 def _published_dashboard(owner: User, *, name: str = "Stewardship project") -> Dashboard:
     dashboard = Dashboard.objects.create(owner=owner, name=name, description="Retained description")
     revision = Revision.objects.create(dashboard=dashboard, number=1, created_by=owner)
-    # A complete revision is normally produced by the upload service. This focused lane does not
-    # need artifact bytes, but render-credential checks still require the immutable completion bit.
+    # A complete revision is normally produced by the upload service. This focused lane needs
+    # valid metadata for the database invariant, but it never reads the corresponding bytes.
+    Artifact.objects.create(
+        revision=revision,
+        kind=Artifact.Kind.HTML,
+        logical_name="dashboard.html",
+        storage_key=StorageKey.generate().value,
+        byte_size=0,
+        media_type="text/html",
+        sha256=hashlib.sha256(b"").hexdigest(),
+    )
     Revision.objects.filter(id=revision.id).update(artifacts_locked=True)
     revision.refresh_from_db()
     published_at = timezone.now()
@@ -77,13 +89,16 @@ def _request(
     *,
     requested_at: datetime | None = None,
 ) -> AccessRequest:
+    if requested_at is not None:
+        return AccessRequest.objects.create(
+            dashboard=dashboard,
+            requester=requester,
+            requested_at=requested_at,
+        )
     access_request = request_dashboard_access(
         dashboard_id=dashboard.id,
         requester_id=requester.id,
     )
-    if requested_at is not None:
-        AccessRequest.objects.filter(id=access_request.id).update(requested_at=requested_at)
-        access_request.refresh_from_db()
     return access_request
 
 

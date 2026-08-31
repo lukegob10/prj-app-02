@@ -67,32 +67,36 @@ main landmark, and footer. The page template owns one descriptive `h1`; section 
 `h2` and proceed without skipped levels.
 
 The shell renders only navigation items supplied by the context processor. Authenticated users
-receive Home and Projects; administrators additionally receive Users. The account menu identifies
-the canonical SOEID and submits logout through a CSRF-protected POST. Do not add links for a route
-until that route exists. The public Home and Sign in screens intentionally omit the anonymous
-header account link: Home owns the single sign-in call to action, and the sign-in form owns the
-single submit action on its screen.
+receive Projects; administrators additionally receive Users. The account menu identifies the
+canonical SOEID and submits logout through a CSRF-protected POST. Do not add links for a route
+until that route exists. The public Home header owns the single sign-in link, while the sign-in
+form owns the single submit action on its screen.
 
 ## Product navigation
 
-The authenticated landing page uses one **Projects** container with equal-width, vertically stacked
-**My projects** and **Shared with me** sections. It does not repeat those destinations as summary
-chips in the hero. The hero keeps the primary **Create new project** and **Browse all projects**
-actions. The Projects page preserves owner and viewer scopes as explicit tabs rather than merging
-their permissions into one ambiguous list.
+The authenticated landing page is the Projects workspace. It preserves **My projects** and
+**Shared with me** as explicit tabs rather than merging their permissions into one ambiguous list,
+and provides bounded prefix search and signed keyset pagination on that same screen. Do not add a
+separate authenticated Home destination that duplicates the Projects workspace. The retired
+`/projects/` path redirects to the authenticated root while preserving supported GET filters.
 
 Authenticated workspace screens use the wider app canvas shared by Home. Page headers, scope tabs,
 tables, status summaries, and history sections are contained surfaces that span the available
 canvas; form workflows retain a wider but bounded reading measure. This treatment applies to
 Projects, Shared with me, Project Detail, and user administration.
 
-The anonymous landing page uses that same wide canvas, with a two-column product introduction,
-contained workflow, and full-width trust-boundary note. The Sign in page is deliberately smaller:
-a centered split card keeps access guidance beside a compact credential form without recreating a
-second page-sized hero.
+The anonymous landing page is one focused surface: a concise product promise, one sign-in action,
+and three short safeguards. Detailed workflow education belongs after authentication rather than
+on the gateway. The Sign in page is deliberately smaller: a centered split card keeps access
+guidance beside a compact credential form without recreating a second page-sized hero.
 
 Creating a project records safe metadata as a private Draft and opens Project Detail. From there
-an owner uploads one HTML file and optional CSV attachments as an immutable Revision, then opens
+an owner builds one upload queue by choosing or dropping one HTML entry point and optional CSV,
+CSS, image, and font Supporting Artifacts. The whole drop surface is the native multi-file input,
+and portal-level file-drop handling prevents a missed drop from opening or rendering a local file
+in the browser. Files may be added in batches; the newest queued file replaces an earlier file
+with the same normalized name. Submitting creates an immutable Revision,
+then opens
 an exact private preview. Preview and published-view pages keep the portal controls outside a
 labelled cross-origin iframe. A viewer sees only a currently Published project with an active
 Grant and opens the stable project URL, never a raw Revision, filename, storage key, or token.
@@ -122,8 +126,9 @@ feature pages in the foundation lane.
   Oracle error.
 - **Add to favorites** and **Remove from favorites** are idempotent POST actions. Use visible text
   even if a star icon is present, and expose the current state with `aria-pressed`. A Favorite is
-  described as a shortcut, never as saved access. After current authorization is lost it must not
-  appear or make the Dashboard route behave differently.
+  described as a shortcut, never as saved access. Put the action in the published dashboard bar as
+  well as eligible discovery rows so Users do not have to leave the dashboard to find it. After
+  current authorization is lost it must not appear or make the Dashboard route behave differently.
 - **Recently viewed** is a bounded list of still-authorized Published Dashboards ordered by the
   compact Dashboard Viewer State, not an activity log. Opening its destination is the obvious
   row action.
@@ -228,7 +233,7 @@ freshness claim into the new update. **Data as of** has no invented or silently 
 Call the metric **Authorized opens**, never generic **views**, **engagement**, **visitors**, or
 **activity**. Place this explanation beside every summary: **An authorized open is counted when
 Agora successfully authorizes the published view. It does not show whether the dashboard loaded
-or what someone did inside it.** Owner preview, failures, iframe/HTML/CSV requests, clicks,
+or what someone did inside it.** Owner preview, failures, iframe/artifact requests, clicks,
 scrolling, filters, IP addresses, user agents, and referrers are outside the metric.
 
 Later portal pages consume only bounded daily rollups, Dashboard/viewer summaries, and Dashboard

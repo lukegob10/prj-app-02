@@ -29,10 +29,10 @@ def test_portal_is_runnable(client: Client) -> None:
     response = client.get("/", HTTP_HOST="portal.agora.test")
 
     assert response.status_code == 200
-    assert b"Turn self-contained dashboards into governed projects" in response.content
-    assert b"Dashboard code stays outside the portal" in response.content
+    assert b"Share dashboards without giving up control" in response.content
+    assert b"Dashboard code runs outside the trusted portal" in response.content
     assert response.headers["X-Frame-Options"] == "DENY"
-    assert "script-src 'none'" in response.headers["Content-Security-Policy"]
+    assert "script-src 'self'" in response.headers["Content-Security-Policy"]
     assert (
         "frame-src http://content.agorausercontent.test:8001"
         in response.headers["Content-Security-Policy"]

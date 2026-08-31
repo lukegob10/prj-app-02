@@ -698,7 +698,7 @@ def build_static_request_shapes(profile: CapacityProfile) -> dict[str, RequestSp
             scenario="shared_with_me",
             origin="portal",
             method="GET",
-            path="/projects/?scope=shared",
+            path="/?scope=shared",
             expected_statuses=frozenset({200}),
         ),
         "grant_check": RequestSpec(

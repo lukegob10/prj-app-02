@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
@@ -38,7 +39,7 @@ from agora.persistence.authentication import (
     reset_user_password,
 )
 from agora.persistence.enhancements import EnhancementAccessDenied, request_dashboard_access
-from agora.persistence.models import Dashboard, Revision, User
+from agora.persistence.models import Dashboard, DashboardFavorite, Revision, User
 from agora.persistence.pagination import (
     CursorColumn,
     CursorPage,
@@ -48,6 +49,7 @@ from agora.persistence.pagination import (
 )
 from agora.persistence.projects import (
     ProjectOwnerUnavailable,
+    ProjectRenameDenied,
     create_project,
     manageable_project,
     prefetch_revision_artifacts,
@@ -55,6 +57,7 @@ from agora.persistence.projects import (
     project_grant_epoch,
     project_grant_history,
     project_revisions,
+    rename_project,
     visible_project,
 )
 from agora.persistence.querying import administrator_user_list
@@ -69,13 +72,21 @@ from agora.rendering.authorization import (
     issue_published_view,
 )
 from agora.rendering.security import portal_content_iframe_attributes
-from agora.uploads import UploadIssueCode, UploadLimits, UploadPart, UploadRejected
+from agora.uploads import (
+    UploadIssue,
+    UploadIssueCode,
+    UploadIssueField,
+    UploadLimits,
+    UploadPart,
+    UploadRejected,
+)
 
 from .forms import (
     ConfirmActionForm,
     GrantViewerForm,
     LoginForm,
     ProjectForm,
+    ProjectRenameForm,
     ProvisionUserForm,
     ResetPasswordForm,
     RevisionUploadForm,
@@ -84,33 +95,114 @@ from .forms import (
 from .security import administrator_required, safe_next_url
 from .stewardship_forms import DashboardAccessRequestForm
 
+logger = logging.getLogger(__name__)
+
 GENERIC_LOGIN_ERROR = "Sign-in failed. Check your SOEID and password."
 UPLOAD_MESSAGES = {
     UploadIssueCode.MALFORMED_MULTIPART: "The upload form was incomplete. Choose the files again.",
     UploadIssueCode.TOO_MANY_FILES: (
-        "Too many files were selected. Upload one HTML and up to 50 CSV files."
+        "Too many files were selected. Upload one HTML entry point and up to 50 supporting files."
     ),
-    UploadIssueCode.MISSING_HTML: "Choose one dashboard HTML file.",
-    UploadIssueCode.MULTIPLE_HTML: "Choose exactly one dashboard HTML file.",
+    UploadIssueCode.MISSING_HTML: "Choose one dashboard HTML entry point.",
+    UploadIssueCode.MULTIPLE_HTML: "Choose exactly one dashboard HTML entry point.",
     UploadIssueCode.INVALID_FILENAME: "A selected file has an unsupported filename.",
     UploadIssueCode.DUPLICATE_FILENAME: "Every selected file must have a unique filename.",
-    UploadIssueCode.EXTENSION_MISMATCH: "Only .html and .csv files are accepted.",
+    UploadIssueCode.EXTENSION_MISMATCH: (
+        "Only .html, .csv, .css, .png, .jpg, .jpeg, .gif, .webp, .woff, and .woff2 "
+        "files are accepted."
+    ),
     UploadIssueCode.MEDIA_TYPE_MISMATCH: "A selected file does not match its declared file type.",
     UploadIssueCode.EMPTY_FILE: "Empty files cannot be uploaded.",
     UploadIssueCode.FILE_TOO_LARGE: "A selected file exceeds the 25 MB limit.",
     UploadIssueCode.TOTAL_TOO_LARGE: "The combined upload exceeds the 100 MB limit.",
-    UploadIssueCode.INVALID_UTF8: "Dashboard and CSV files must use UTF-8 text encoding.",
-    UploadIssueCode.BINARY_CONTENT: "Binary content is not accepted in dashboard or CSV files.",
-    UploadIssueCode.CSV_MALFORMED: "A CSV attachment is malformed.",
-    UploadIssueCode.HTML_MALFORMED: "The dashboard HTML is malformed.",
-    UploadIssueCode.HTML_TOO_COMPLEX: "The dashboard HTML exceeds the supported complexity limits.",
+    UploadIssueCode.INVALID_UTF8: "HTML, CSV, and CSS files must use UTF-8 text encoding.",
+    UploadIssueCode.BINARY_CONTENT: "Binary content is not accepted in HTML, CSV, or CSS files.",
+    UploadIssueCode.CSV_MALFORMED: "A CSV supporting file is malformed.",
+    UploadIssueCode.HTML_MALFORMED: "The dashboard HTML entry point is malformed.",
+    UploadIssueCode.HTML_TOO_COMPLEX: (
+        "The dashboard HTML entry point exceeds the supported complexity limits."
+    ),
     UploadIssueCode.EXTERNAL_DEPENDENCY: (
-        "The dashboard must be self-contained without external resources. Embed scripts and "
-        "styles, and present external source URLs as plain text."
+        "Outside URLs and network dependencies are blocked. Reference only selected supporting "
+        "filenames, and keep JavaScript inline; separate JS files are not supported."
     ),
     UploadIssueCode.INVALID_CSV_REFERENCE: "The dashboard contains an invalid CSV reference.",
     UploadIssueCode.MISSING_CSV_REFERENCE: (
-        "The dashboard references a CSV file that was not attached."
+        "The dashboard references a CSV file that was not selected."
+    ),
+    UploadIssueCode.INVALID_ASSET_REFERENCE: (
+        "The dashboard contains an invalid supporting-file reference."
+    ),
+    UploadIssueCode.MISSING_ASSET_REFERENCE: (
+        "The dashboard references a supporting file that was not selected."
+    ),
+}
+UPLOAD_EXTERNAL_DEPENDENCY_MESSAGES = {
+    UploadIssueField.CSS_IMPORT: (
+        "A stylesheet uses @import. Select that stylesheet directly and link it from the HTML "
+        "instead."
+    ),
+    UploadIssueField.CSS_EXTERNAL_URL: (
+        "A stylesheet loads an outside URL. Select the referenced image or web font and use its "
+        "package-local filename instead."
+    ),
+    UploadIssueField.HTML_PROCESSING_INSTRUCTION: (
+        "The HTML contains a processing instruction, which dashboard packages do not support."
+    ),
+    UploadIssueField.HTML_EMBEDDED_CONTENT: (
+        "The HTML embeds another document or plugin. Iframes, objects, embeds, frames, portals, "
+        "and base URLs are not supported."
+    ),
+    UploadIssueField.HTML_LINK: (
+        "The HTML contains an unsupported link element. Link only a selected local stylesheet "
+        "or icon file."
+    ),
+    UploadIssueField.HTML_SCRIPT_SOURCE: (
+        "The HTML uses a script src. External and separate JavaScript files are not supported; "
+        "the dashboard JavaScript must be inline."
+    ),
+    UploadIssueField.HTML_MANIFEST: (
+        "The HTML references an application manifest, which is blocked."
+    ),
+    UploadIssueField.HTML_FORM_ACTION: (
+        "The HTML contains a form or form submission target. Dashboard form submissions are "
+        "blocked."
+    ),
+    UploadIssueField.HTML_RESPONSIVE_SOURCE: (
+        "The HTML uses srcset or imagesrcset. Select one local image and reference its exact "
+        "filename with src instead."
+    ),
+    UploadIssueField.HTML_META_URL: (
+        "HTML metadata contains an outside URL. Remove that network reference from the metadata."
+    ),
+    UploadIssueField.HTML_META_REFRESH: "HTML meta refresh navigation is blocked.",
+    UploadIssueField.INLINE_SCRIPT_URL: (
+        "Inline JavaScript contains an outside URL. Load data from an exact selected CSV filename "
+        'instead, for example fetch("sales.csv").'
+    ),
+    UploadIssueField.INLINE_NETWORK_API: (
+        "Inline JavaScript uses a blocked networking, worker, or service-worker API. Load a "
+        "selected CSV with a literal local fetch or d3.csv call instead."
+    ),
+    UploadIssueField.DYNAMIC_DATA_REFERENCE: (
+        "A fetch or d3.csv call does not use one literal selected CSV filename. Use a call such "
+        'as fetch("sales.csv") or d3.csv("sales.csv").'
+    ),
+    UploadIssueField.DATA_TEMPLATE_LITERAL: (
+        "A fetch or d3.csv call contains an incomplete backtick template. Close the template "
+        "before the call's remaining arguments."
+    ),
+    UploadIssueField.DATA_IDENTIFIER: (
+        "A fetch or d3.csv call passes a variable instead of a provably local CSV filename. "
+        'Pass the exact selected filename directly, such as fetch("sales.csv").'
+    ),
+    UploadIssueField.DATA_EXPRESSION: (
+        "A fetch or d3.csv call builds its location dynamically. Pass one exact selected CSV "
+        "filename directly instead."
+    ),
+    UploadIssueField.EXTERNAL_REFERENCE: (
+        "An HTML resource points outside the selected package. Select that supported resource "
+        "and reference its exact local filename."
     ),
 }
 
@@ -126,6 +218,9 @@ REVISION_PAGE_SIZE = 25
 GRANT_PAGE_SIZE = 25
 USER_PAGE_SIZE = 25
 RENDER_ARTIFACT_LIMIT = UploadLimits().max_files
+_UPLOAD_FILE_FIELDS = frozenset(
+    {"package_files", "files", "html_file", "supporting_files", "csv_files"}
+)
 
 GRANT_REJECTION_MESSAGES = {
     GrantRejection.INVALID_SOEID: "Enter a valid canonical SOEID.",
@@ -139,10 +234,10 @@ GRANT_REJECTION_MESSAGES = {
 
 
 def home(request: HttpRequest) -> HttpResponse:
-    """Compatibility wrapper for the dedicated discovery home view."""
+    """Render the public landing or unified authenticated Projects screen."""
     from .discovery_views import home as discovery_home
 
-    return discovery_home(request)
+    return discovery_home(request, page_size=PROJECT_PAGE_SIZE)
 
 
 @login_required
@@ -209,10 +304,43 @@ def project_detail(request: HttpRequest, project_id: UUID) -> HttpResponse:
         "portal/projects/detail.html",
         {
             "project": project,
+            "can_rename": is_owner and project.state != Dashboard.State.ARCHIVED,
             "is_owner": is_owner,
             "revisions": revisions,
             "revision_page": revision_page,
         },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def project_rename(request: HttpRequest, project_id: UUID) -> HttpResponse:
+    """Rename one active dashboard through its current owner boundary."""
+    user = cast(User, request.user)
+    project = manageable_project(project_id, user.id)
+    if project is None or project.state == Dashboard.State.ARCHIVED:
+        return render(request, "portal/not_found.html", status=404)
+
+    form = ProjectRenameForm(
+        request.POST if request.method == "POST" else None,
+        initial={"name": project.name},
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            rename_project(
+                project_id=project.id,
+                owner_id=user.id,
+                name=cast(str, form.cleaned_data["name"]),
+            )
+        except ProjectRenameDenied:
+            return render(request, "portal/not_found.html", status=404)
+        messages.success(request, "Dashboard renamed.")
+        return redirect("project-detail", project_id=project.id)
+
+    return render(
+        request,
+        "portal/projects/rename.html",
+        {"form": form, "project": project},
     )
 
 
@@ -479,6 +607,13 @@ def _render_dashboard_shell(
                 ).order_by("kind", "logical_name", "id")[:RENDER_ARTIFACT_LIMIT]
             ),
             "is_preview": is_preview,
+            "is_favorite": (
+                not is_preview
+                and DashboardFavorite.objects.filter(
+                    dashboard_id=project.id,
+                    user_id=cast(User, request.user).id,
+                ).exists()
+            ),
             "expires_at": credential.expires_at,
             "iframe_src": iframe["src"],
             "iframe_sandbox": iframe["sandbox"],
@@ -498,11 +633,9 @@ def project_upload(request: HttpRequest, project_id: UUID) -> HttpResponse:
 
     form = RevisionUploadForm(request.POST or None, request.FILES or None)
     if request.method == "POST" and form.is_valid():
-        html_file: UploadedFile[Any] = cast(Any, request.FILES["html_file"])
-        csv_files: list[UploadedFile[Any]] = request.FILES.getlist("csv_files")
-        parts = [_upload_part(html_file), *(_upload_part(item) for item in csv_files)]
         storage = FilesystemArtifactStorage(Path(settings.AGORA_ARTIFACT_ROOT))
         try:
+            parts = _request_upload_parts(request)
             revision = create_upload_revision(
                 dashboard_id=project.id,
                 created_by_id=user.id,
@@ -510,6 +643,13 @@ def project_upload(request: HttpRequest, project_id: UUID) -> HttpResponse:
                 storage=storage,
             )
         except UploadRejected as error:
+            logger.warning(
+                "Dashboard upload rejected: code=%s part_index=%s field=%s dashboard_id=%s",
+                error.issue.code.value,
+                error.issue.part_index,
+                error.issue.field.value if error.issue.field is not None else "unspecified",
+                project.id,
+            )
             form.add_error(None, _upload_error_message(error))
         except ArtifactStorageError, RevisionCreationError:
             form.add_error(
@@ -520,6 +660,49 @@ def project_upload(request: HttpRequest, project_id: UUID) -> HttpResponse:
             messages.success(request, f"Revision {revision.number} uploaded successfully.")
             return redirect("project-detail", project_id=project.id)
     return render(request, "portal/projects/upload.html", {"form": form, "project": project})
+
+
+def _request_upload_parts(request: HttpRequest) -> list[UploadPart]:
+    """Return every accepted multipart file or reject the request shape.
+
+    The current UI submits one ordered ``package_files`` list. Former unified and split field
+    names remain accepted during rollout, but mixing shapes, adding unknown fields, or hiding
+    repeated values cannot bypass the package validator's count and size limits.
+    """
+
+    file_fields = set(request.FILES)
+    if not file_fields <= _UPLOAD_FILE_FIELDS:
+        raise UploadRejected(UploadIssue(UploadIssueCode.MALFORMED_MULTIPART))
+
+    selected_files: list[UploadedFile[Any]] = request.FILES.getlist("package_files")
+    former_unified_files: list[UploadedFile[Any]] = request.FILES.getlist("files")
+    html_files: list[UploadedFile[Any]] = request.FILES.getlist("html_file")
+    supporting_files: list[UploadedFile[Any]] = request.FILES.getlist("supporting_files")
+    legacy_csv_files: list[UploadedFile[Any]] = request.FILES.getlist("csv_files")
+    legacy_files = [*former_unified_files, *html_files, *supporting_files, *legacy_csv_files]
+    if selected_files:
+        if legacy_files:
+            raise UploadRejected(UploadIssue(UploadIssueCode.MALFORMED_MULTIPART))
+        return [_upload_part(item) for item in selected_files]
+
+    if former_unified_files:
+        if html_files or supporting_files or legacy_csv_files:
+            raise UploadRejected(UploadIssue(UploadIssueCode.MALFORMED_MULTIPART))
+        return [_upload_part(item) for item in former_unified_files]
+
+    if len(html_files) != 1:
+        code = UploadIssueCode.MISSING_HTML if not html_files else UploadIssueCode.MULTIPLE_HTML
+        raise UploadRejected(UploadIssue(code))
+
+    if supporting_files and legacy_csv_files:
+        raise UploadRejected(UploadIssue(UploadIssueCode.MALFORMED_MULTIPART))
+    # Accept the former CSV-only multipart key during rollout without exposing a second field
+    # in the rendered form. New clients always submit ``supporting_files``.
+    selected_supporting_files = supporting_files or legacy_csv_files
+    return [
+        _upload_part(html_files[0]),
+        *(_upload_part(item) for item in selected_supporting_files),
+    ]
 
 
 def _upload_part(uploaded: UploadedFile[Any]) -> UploadPart:
@@ -536,10 +719,11 @@ def _upload_error_message(error: UploadRejected) -> str:
         error.issue.code,
         "The upload could not be accepted. Review the selected files and try again.",
     )
+    if error.issue.code == UploadIssueCode.EXTERNAL_DEPENDENCY and error.issue.field is not None:
+        message = UPLOAD_EXTERNAL_DEPENDENCY_MESSAGES.get(error.issue.field, message)
     if error.issue.part_index is None:
         return message
-    location = "dashboard HTML" if error.issue.part_index == 0 else "CSV attachment"
-    return f"Problem with the {location}: {message}"
+    return f"Problem with a selected file: {message}"
 
 
 def _grant_rejection_message(error: GrantViewerRejected) -> str:

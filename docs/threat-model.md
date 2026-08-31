@@ -6,8 +6,8 @@ upload limits, or render authorization
 
 ## Security objective
 
-An authorized user may use a trusted portal shell, while uploaded HTML and CSV remain hostile,
-private, immutable artifacts. Hostile content must not gain portal identity, portal API access,
+An authorized user may use a trusted portal shell, while uploaded dashboard-package files remain
+hostile, private, immutable artifacts. Hostile content must not gain portal identity, portal API access,
 another Dashboard's data, or filesystem paths. Agora reduces browser exfiltration channels, but
 does not claim that CSP alone can provide a complete network-isolation boundary for arbitrary
 JavaScript.
@@ -15,7 +15,7 @@ JavaScript.
 ## Assets and actors
 
 Protected assets are portal sessions, canonical identity, authorization state, Dashboard
-metadata, unpublished and Published HTML/CSV, storage keys/paths, render credentials, secrets,
+metadata, unpublished and Published dashboard packages, storage keys/paths, render credentials, secrets,
 and service availability. Attackers include unauthenticated users, unrelated authenticated
 users, malicious owners/authors, malicious granted viewers, compromised uploaded content, and
 accidental operator misconfiguration.
@@ -32,16 +32,16 @@ Dashboard content access.
    content service.
 3. Content authorization cannot authorize portal APIs or a different User, Dashboard, Revision,
    filename, or storage key.
-4. Every HTML and CSV fetch is authorized server-side. Identifier entropy is defense-in-depth.
+4. Every dashboard-package fetch is authorized server-side. Identifier entropy is defense-in-depth.
 5. Content exposes only narrow read-only GET/HEAD endpoints; portal owns identity and mutations.
 6. Filenames are logical display names only. Adapter-generated keys and root-containment checks
    own storage addressing.
 7. Artifacts remain private and outside public/static roots; a raw storage URL never exists.
 8. CORS is never wildcarded, cookies are never domain-scoped across portal/content, and uploaded
    bytes cannot relax the response-enforced CSP/sandbox.
-9. Logs exclude credentials, cookies, authorization headers, render tokens, raw HTML/CSV,
+9. Logs exclude credentials, cookies, authorization headers, render tokens, raw artifact bytes,
    connection secrets, and sensitive query strings.
-10. A Viewer of a Published Revision may retrieve every attached CSV by product contract.
+10. A Viewer of a Published Revision may retrieve every Supporting Artifact by product contract.
 11. Hostile Revisions must not share durable browser storage or ambient credentials. A single
     shared content origin with `allow-same-origin` is not an approved isolation design.
 12. Tags, Favorites, viewer state, access requests, and analytics summaries never grant access;
@@ -64,7 +64,7 @@ target, but that history does not restore access.
 Disabling an owner removes that owner's management and viewing access but does not implicitly
 unpublish the Dashboard or revoke access for other active granted viewers.
 
-Revoke, disable, and unpublish state are rechecked on every HTML and CSV authorization request.
+Revoke, disable, and unpublish state are rechecked on every package authorization request.
 An already-issued render credential therefore fails at its next authorization check. This cannot
 recall bytes that were already streamed to a browser, which is an explicit residual risk.
 
@@ -74,9 +74,9 @@ recall bytes that were already streamed to a browser, which is an explicit resid
 |---|---|---|
 | **Uploaded HTML crosses into portal** | Separate sites and service compositions; portal URLconf contains no artifact route; never template/mark safe/`srcdoc` uploaded bytes; content response CSP plus iframe sandbox; no portal session middleware on content. | Portal/content integration tests assert the exact split and browser fixtures exercise hostile content against the same policy primitives. |
 | **Malicious CSV executes or surprises viewers** | Treat bytes as opaque hostile data; validate encoding/type/size without evaluating formulas; `text/csv`, `nosniff`, safe response filenames; never render cells as portal HTML; visibly disclose whole-CSV access. | Upload cases in AG-006; MIME/formula and authorization cases in AG-007/AG-011. Spreadsheet formula execution after a user deliberately opens a download cannot be eliminated; author/viewer guidance must warn. |
-| **IDOR / cross-Dashboard access** | Central default-deny policy on metadata, HTML, and every CSV request; resolve authorization before artifact metadata; scope by principal, Dashboard, lifecycle, pinned Revision, and attachment; generic external failures. Retained ViewerGrant epochs are checked for the exact Dashboard and viewer, with active-only uniqueness and indexed lookups. | Full owner/viewer/unrelated/administrator/disabled/unauthenticated matrix in AG-004/AG-011, including altered Dashboard, Revision, attachment, filename, and key. |
+| **IDOR / cross-Dashboard access** | Central default-deny policy on metadata and every artifact request; resolve authorization before artifact metadata; scope by principal, Dashboard, lifecycle, pinned Revision, and artifact; generic external failures. Retained ViewerGrant epochs are checked for the exact Dashboard and viewer, with active-only uniqueness and indexed lookups. | Full owner/viewer/unrelated/administrator/disabled/unauthenticated matrix in AG-004/AG-011, including altered Dashboard, Revision, artifact, filename, and key. |
 | **Path traversal / key confusion** | Exact ASCII storage-key grammar generated independently of filenames; never join request values to paths; Unicode comparison keys remain metadata only; absolute private root with ancestor/reparse checks; no-clobber atomic operations. | AG-002 unit/integration cases cover traversal/key forms, Unicode collisions, symlink/reparse handling, collisions, and partial writes. AG-006 still owns multipart filename/content validation. |
-| **Render-token replay or widening** | A 256-bit random bearer is stored only as a digest, expires after five minutes, and is scoped to principal, auth version, Dashboard, Revision, and audience. Every file request rechecks active User, Grant/ownership, publication, revision, expiry, and revocation. TLS, `no-store`, `no-referrer`, and disabled/redacted path logging are mandatory. The current multi-request bearer remains replayable inside its short window so referenced CSV requests can work. | Integration tests cover expiry, alteration, wrong audience, revocation, disablement, unpublish, missing attachment, and cross-scope denial. A one-use bootstrap/content-session exchange remains a hardening option before claiming strict non-shareability. |
+| **Render-token replay or widening** | A 256-bit random bearer is stored only as a digest, expires after five minutes, and is scoped to principal, auth version, Dashboard, Revision, and audience. Every file request rechecks active User, Grant/ownership, publication, revision, expiry, and revocation. TLS, `no-store`, `no-referrer`, and disabled/redacted path logging are mandatory. The current multi-request bearer remains replayable inside its short window so same-Revision supporting requests can work. | Integration tests cover expiry, alteration, wrong audience, revocation, disablement, unpublish, missing artifacts, and cross-scope denial. A one-use bootstrap/content-session exchange remains a hardening option before claiming strict non-shareability. |
 | **Transfer preserves stale authority or corrupts attribution** | Only the current active owner may invoke transfer; Dashboard is locked before Users; the incoming owner's active Grant is revoked; a chained immutable marker authorizes the owner change. Revision/Grant triggers check the current owner for new actions but never require historical actors to equal that owner. Every render and management operation rechecks current ownership. | Domain, migration-contract, reversal-safety, and adversarial tests cover prior-owner denial, incoming-owner authority, retained historical actors, Grant epochs, and fail-safe reversal refusal after a real transfer. |
 | **Navigation/workflow state becomes an authorization oracle** | Favorite, viewer-state, Tag, and AccessRequest rows are inert. Query services intersect current owner/active Grant and publication state, use generic external failures, escape messages, and scope owner request queues to one exact Dashboard. | Service/query tests cover revoked, unpublished, transferred, unrelated, inactive, and malformed cases plus bounded slices and index alignment. |
 | **Usage telemetry widens or leaks behavior** | Count only successful Published Viewer authorization creation. Capture one idempotent row with no IP, agent, referrer, click, filter, iframe, fetch, or content data; do not also write `dashboard.view_started`. Portal/admin modules consume bounded aggregates only. Raw deletion requires completed aggregation, a monotonic checkpoint, and 90-day age. | Schema/source-boundary and analytics tests cover preview/denial exclusion, idempotence, no double write, project-scoped aggregates, bounded jobs, checkpoint monotonicity, and retention guards. |
@@ -96,9 +96,9 @@ default-src 'none';
 base-uri 'none';
 object-src 'none';
 script-src 'unsafe-inline';
-style-src 'unsafe-inline';
-img-src data: blob:;
-font-src data:;
+style-src 'self' 'unsafe-inline';
+img-src 'self' data: blob:;
+font-src 'self' data:;
 media-src data: blob:;
 connect-src 'self';
 frame-src 'none';
@@ -111,9 +111,9 @@ sandbox allow-scripts
 
 The matching iframe sandbox initially grants only `allow-scripts`, so hostile documents receive
 an opaque origin and cannot share the content site's durable origin storage. A successfully
-authorized CSV response may therefore return the exact `Access-Control-Allow-Origin: null` value,
-with `Vary: Origin` and without credentialed CORS, so the sandboxed document can fetch its own
-Revision-relative CSV. The render credential and exact artifact scope provide authorization;
+authorized Supporting Artifact response may therefore return the exact
+`Access-Control-Allow-Origin: null` value, with `Vary: Origin` and without credentialed CORS, so
+the sandboxed document can fetch its own Revision-relative files. The render credential and exact artifact scope provide authorization;
 `Origin: null` never does. HTML, denied requests, non-null origins, and unrelated routes receive
 no CORS grant. If AG-007 cannot satisfy the product contract without `allow-same-origin`, it must introduce
 per-Dashboard or per-Revision origin isolation (or an independently reviewed equivalent) before
@@ -137,7 +137,7 @@ before claiming the complete AG-007/AG-011 browser matrix.
   network firewall. AG-007 must resolve and test document-navigation, WebRTC/STUN, and DNS
   behavior; environments requiring a hard no-egress guarantee need defense-in-depth network or
   browser policy.
-- Opaque-origin CSV access is the conservative baseline. Any later same-origin grant is blocked
+- Opaque-origin package access is the conservative baseline. Any later same-origin grant is blocked
   on a reviewed cross-Dashboard storage-isolation design.
 - Authorized viewers can copy bytes they receive; revocation cannot recall them.
 - CSV formula interpretation is controlled by downstream spreadsheet software, not Agora.

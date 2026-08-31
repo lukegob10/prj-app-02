@@ -68,8 +68,8 @@ profile digest, deterministic request ID, scenario label, status, full duration,
 response-byte count, expected/error classification, allowlisted authorization outcome (`allowed`,
 `denied`, or `not_applicable`), and numeric Oracle telemetry. It never serializes request URLs,
 query strings, form fields, SOEIDs, passwords, cookies, CSRF values, render tokens, response
-headers, HTML, or CSV. Portal bodies needed to extract a CSRF value, revoke link, or isolated iframe
-URL are bounded and transient; HTML and CSV delivery bodies are streamed only into byte counters.
+headers, or dashboard-package bytes. Portal bodies needed to extract a CSRF value, revoke link, or isolated iframe
+URL are bounded and transient; artifact delivery bodies are streamed only into byte counters.
 HTTP proxies inherited from the process are disabled so token-bearing content requests are sent
 only to the pinned content origin. HTTPS verification remains enabled. `--allow-http-loopback` is
 available only for local smoke diagnostics and cannot produce capacity evidence.
@@ -115,8 +115,8 @@ Measure each scenario at p50, p95, and p99 after warm-up. These proposed initial
 | Portal metadata, grant check, and Shared with Me p99 | ≤ 400 ms |
 | Render start/token issuance p50 | ≤ 125 ms |
 | Render start/token issuance p95 / p99 | ≤ 250 / 600 ms |
-| Authorized HTML/CSV first-byte p50 | ≤ 150 ms |
-| Authorized HTML/CSV first-byte p95 / p99 | ≤ 300 / 800 ms |
+| Authorized package first-byte p50 | ≤ 150 ms |
+| Authorized package first-byte p95 / p99 | ≤ 300 / 800 ms |
 | Error rate (5xx, timeout, and unexpected 4xx) | < 0.1% overall; 0 auth bypasses |
 | Oracle query latency p95 / p99 | ≤ 75 / 250 ms |
 | Oracle pool wait p95 | ≤ 25 ms; no pool exhaustion |

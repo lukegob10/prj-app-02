@@ -148,6 +148,28 @@ def test_opaque_sandbox_can_fetch_same_revision_csv(
     assert csv_requests[0].cookie is None
 
 
+def test_opaque_sandbox_can_load_same_revision_package_assets(
+    page: Page,
+    browser_stack: BrowserFixtureStack,
+) -> None:
+    page.goto(browser_stack.portal.url("/fixture/package"))
+    frame = _frame(page, "package-content")
+    body = frame.locator("body")
+    expect(body).to_have_attribute("data-ready", "true", timeout=5_000)
+
+    assert body.get_attribute("data-css") == "loaded"
+    assert body.get_attribute("data-image") == "loaded"
+    assert len(browser_stack.content.requests_for("/fixture/package.css")) == 1
+    assert len(browser_stack.content.requests_for("/fixture/package.png")) == 1
+    assert all(
+        request.cookie is None
+        for request in (
+            *browser_stack.content.requests_for("/fixture/package.css"),
+            *browser_stack.content.requests_for("/fixture/package.png"),
+        )
+    )
+
+
 def test_clickjacking_is_blocked_and_content_accepts_only_the_portal_ancestor(
     page: Page, browser_stack: BrowserFixtureStack
 ) -> None:

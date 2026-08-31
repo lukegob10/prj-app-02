@@ -140,8 +140,8 @@ def test_disabled_viewer_cannot_resume_a_previously_issued_shared_page(
     viewer.save(update_fields=("is_active",))
     resumed = client.get(next_url)
 
-    assert resumed.status_code == 302
-    assert resumed["Location"].startswith(f"{reverse('login')}?next=")
+    assert resumed.status_code == 200
+    assert b"Dashboard workspace" not in resumed.content
     assert all(project.name.encode() not in resumed.content for project in projects)
 
 

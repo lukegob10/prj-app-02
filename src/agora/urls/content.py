@@ -4,7 +4,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseNotFound
 from django.urls import path, re_path
 
 from agora.persistence.models import RenderAuthorization
-from agora.rendering.views import render_csv, render_html
+from agora.rendering.views import render_artifact, render_html
 
 
 def content_not_available(request: HttpRequest) -> HttpResponse:
@@ -21,7 +21,15 @@ urlpatterns = [
     ),
     path(
         "render/preview/<str:token>/<str:logical_name>",
-        render_csv,
+        render_artifact,
+        {"audience": RenderAuthorization.Audience.PREVIEW},
+        name="render-preview-artifact",
+    ),
+    # Keep the established route name available to clients while the implementation is
+    # generic for CSV, CSS, IMAGE, and FONT artifacts.
+    path(
+        "render/preview/<str:token>/<str:logical_name>",
+        render_artifact,
         {"audience": RenderAuthorization.Audience.PREVIEW},
         name="render-preview-csv",
     ),
@@ -33,7 +41,14 @@ urlpatterns = [
     ),
     path(
         "render/viewer/<str:token>/<str:logical_name>",
-        render_csv,
+        render_artifact,
+        {"audience": RenderAuthorization.Audience.VIEWER},
+        name="render-viewer-artifact",
+    ),
+    # Compatibility alias for the former CSV-only route name.
+    path(
+        "render/viewer/<str:token>/<str:logical_name>",
+        render_artifact,
         {"audience": RenderAuthorization.Audience.VIEWER},
         name="render-viewer-csv",
     ),

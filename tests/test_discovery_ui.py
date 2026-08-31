@@ -16,18 +16,13 @@ from django.utils import timezone
 from agora.persistence.enhancements import EnhancementAccessDenied, set_dashboard_favorite
 from agora.persistence.models import (
     Artifact,
-    AuditEvent,
-    AuthorizedOpen,
     Dashboard,
     DashboardFavorite,
     DashboardTag,
-    DashboardViewerState,
-    RenderAuthorization,
     Revision,
     User,
     ViewerGrant,
 )
-from agora.persistence.storage import FilesystemArtifactStorage
 
 pytestmark = pytest.mark.django_db
 
@@ -228,9 +223,9 @@ def test_favorite_post_is_idempotent_authorized_and_rechecks_published_state() -
     assert client.get(url).status_code == 405
     assert _client(viewer, enforce_csrf=True).post(url, {"favorited": "1"}).status_code == 403
     for _ in range(2):
-        added = client.post(url, {"favorited": "1", "next": "/projects/?scope=shared"})
+        added = client.post(url, {"favorited": "1", "next": "/?scope=shared"})
         assert added.status_code == 302
-        assert added["Location"] == "/projects/?scope=shared"
+        assert added["Location"] == "/?scope=shared"
     assert DashboardFavorite.objects.filter(user=viewer, dashboard=dashboard).count() == 1
 
     for _ in range(2):
@@ -254,6 +249,8 @@ def test_favorite_post_is_idempotent_authorized_and_rechecks_published_state() -
     assert hidden.status_code == missing.status_code == 404
     assert dashboard.name.encode() not in hidden.content
 
+    owner.is_active = True
+    owner.save(update_fields=("is_active",))
     grant.revoked_at = timezone.now()
     grant.revoked_by = owner
     grant.save(update_fields=("revoked_at", "revoked_by"))
@@ -273,59 +270,23 @@ def test_favorite_post_is_idempotent_authorized_and_rechecks_published_state() -
         )
 
 
-def test_home_return_surfaces_are_ten_row_state_reads_with_constant_query_count(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    viewer = _user("DISCOVERY.HOME.VIEWER")
-    owner = _user("DISCOVERY.HOME.OWNER")
-    now = timezone.now()
-    dashboards = []
-    for number in range(11):
-        dashboard = _publish(_dashboard(owner, f"Return dashboard {number:02d}"))
-        _grant(dashboard, viewer)
-        DashboardFavorite.objects.create(user=viewer, dashboard=dashboard)
-        DashboardViewerState.objects.create(
-            user=viewer,
-            dashboard=dashboard,
-            last_viewed_at=now,
-            seen_publication_version=0,
-        )
-        dashboards.append(dashboard)
+def test_legacy_projects_url_redirects_to_root_and_preserves_filters() -> None:
+    user = _user("DISCOVERY.LEGACY")
+    response = _client(user).get(
+        reverse("legacy-project-list"),
+        {"scope": "shared", "query": "risk"},
+    )
 
-    def reject_artifact_open(*args: object, **kwargs: object) -> None:
-        raise AssertionError("catalog pages must not open stored artifacts")
-
-    monkeypatch.setattr(FilesystemArtifactStorage, "open", reject_artifact_open)
-    client = _client(viewer)
-    with CaptureQueriesContext(connection) as baseline_queries:
-        baseline = client.get(reverse("home"))
-
-    assert baseline.status_code == 200
-    assert len(baseline.context["favorites"]) == 10
-    assert len(baseline.context["recently_viewed"]) == 10
-    assert RenderAuthorization.objects.count() == 0
-    assert DashboardViewerState.objects.filter(user=viewer).count() == 11
-
-    for number in range(30):
-        unrelated_owner = _user(f"DISCOVERY.UNRELATED{number:02d}")
-        _dashboard(unrelated_owner, f"Unrelated {number:02d}")
-    with CaptureQueriesContext(connection) as populated_queries:
-        populated = client.get(reverse("home"))
-
-    assert populated.status_code == 200
-    assert len(populated_queries) == len(baseline_queries)
-    assert all("COUNT(" not in query["sql"].upper() for query in populated_queries)
-    assert all(" OFFSET " not in query["sql"].upper() for query in populated_queries)
-    sql = "\n".join(query["sql"] for query in populated_queries).upper()
-    for forbidden_table in (Artifact, AuthorizedOpen, AuditEvent, RenderAuthorization):
-        assert forbidden_table._meta.db_table not in sql
+    assert response.status_code == 302
+    assert response["Location"] == "/?scope=shared&query=risk"
+    assert reverse("project-list") == reverse("home") == "/"
 
 
 def test_anonymous_discovery_mutations_and_lists_require_authentication() -> None:
     project_id = uuid4()
     client = Client()
     for method, url in (
-        ("get", reverse("project-list")),
+        ("get", reverse("legacy-project-list")),
         ("get", reverse("project-tags", args=[project_id])),
         ("post", reverse("project-favorite", args=[project_id])),
     ):

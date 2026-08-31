@@ -1,22 +1,22 @@
 {% url "project-favorite" project.id as favorite_url %}
-<form method="post" action="{{ favorite_url }}">
+<form class="portal-favorite-form" method="post" action="{{ favorite_url }}">
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ request.get_full_path }}">
-  {% if project.is_favorite %}
+  {% if favorite_active %}
     <input type="hidden" name="favorited" value="0">
     <button
-      class="portal-button portal-button--quiet"
+      class="portal-button portal-button--favorite"
       type="submit"
       aria-label="Remove {{ project.name }} from favorites"
       aria-pressed="true"
-    >Remove from favorites</button>
+    ><span aria-hidden="true">&#9733;</span> Remove favorite</button>
   {% else %}
     <input type="hidden" name="favorited" value="1">
     <button
-      class="portal-button portal-button--quiet"
+      class="portal-button portal-button--favorite"
       type="submit"
       aria-label="Add {{ project.name }} to favorites"
       aria-pressed="false"
-    >Add to favorites</button>
+    ><span aria-hidden="true">&#9734;</span> Add to favorites</button>
   {% endif %}
 </form>

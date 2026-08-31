@@ -9,7 +9,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from agora.persistence.models import Dashboard, Revision, User, ViewerGrant
+from agora.persistence.models import AuditEvent, Dashboard, Revision, User, ViewerGrant
 from agora.persistence.pagination import CursorColumn, CursorValueKind, paginate_keyset
 from agora.persistence.projects import (
     manageable_project,
@@ -20,6 +20,7 @@ from agora.persistence.projects import (
     project_grant_epoch,
     project_grant_history,
     project_revisions,
+    rename_project,
     shared_projects,
     visible_project,
 )
@@ -79,6 +80,35 @@ def grant(
         revoked_at=revoked_at,
         revoked_by=revoked_by,
     )
+
+
+def test_rename_project_preserves_identity_and_allows_duplicate_display_names(
+    owner: User,
+    second_owner: User,
+) -> None:
+    project = dashboard(owner, "Original")
+    same_owner_match = dashboard(owner, "Repeated name")
+    other_owner_match = dashboard(second_owner, "Repeated name")
+
+    renamed = rename_project(
+        project_id=project.id,
+        owner_id=owner.id,
+        name="  Repeated name  ",
+    )
+
+    assert renamed.id == project.id
+    assert renamed.owner_id == owner.id
+    assert renamed.name == "Repeated name"
+    assert Dashboard.objects.filter(name="Repeated name").count() == 3
+    assert {same_owner_match.id, other_owner_match.id} <= set(
+        Dashboard.objects.filter(name="Repeated name").values_list("id", flat=True)
+    )
+    assert AuditEvent.objects.filter(
+        event_type="dashboard.renamed",
+        actor=owner,
+        dashboard=project,
+        metadata={},
+    ).exists()
 
 
 def test_detail_primitives_are_owner_scoped_and_bounded(
@@ -214,6 +244,8 @@ def test_shared_with_me_is_duplicate_free_after_revoke_and_regrant(
     owner.save(update_fields=("is_active",))
     assert [item.id for item in shared_projects(viewer.id)] == [project.id]
 
+    owner.is_active = True
+    owner.save(update_fields=("is_active",))
     new_epoch.revoked_at = timezone.now()
     new_epoch.revoked_by = owner
     new_epoch.save(update_fields=("revoked_at", "revoked_by"))

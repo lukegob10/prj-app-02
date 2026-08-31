@@ -13,6 +13,7 @@ from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from agora.persistence.models import (
+    ARTIFACT_MEDIA_TYPES,
     Artifact,
     AuditEvent,
     Dashboard,
@@ -50,6 +51,7 @@ class ArtifactPayload:
     chunks: Iterable[bytes]
     expected_size: int
     expected_sha256: str
+    media_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +66,7 @@ class _PreparedArtifact:
     name: LogicalName
     payload: ArtifactPayload
     receipt: StoredArtifact
+    media_type: str
 
 
 @dataclass(slots=True)
@@ -137,6 +140,7 @@ def create_complete_revision(
                     name=name,
                     payload=payload,
                     receipt=receipt,
+                    media_type=_authoritative_media_type(payload),
                 )
             )
 
@@ -207,18 +211,63 @@ def _validate_payload_set(payloads: Sequence[ArtifactPayload]) -> list[LogicalNa
     names: list[LogicalName] = []
     seen: set[str] = set()
     for payload in payloads:
-        if payload.kind not in Artifact.Kind.values:
-            raise RevisionCreationError("artifact kind is not supported")
+        _artifact_kind(payload)
         if payload.expected_size < 0:
             raise RevisionCreationError("artifact size must be nonnegative")
         if _DIGEST_RE.fullmatch(payload.expected_sha256) is None:
             raise RevisionCreationError("artifact SHA-256 must be lowercase hexadecimal")
+        _authoritative_media_type(payload)
         name = normalize_logical_name(payload.logical_name)
         if name.comparison_key in seen:
             raise RevisionCreationError("artifact logical names must be unique after normalization")
         seen.add(name.comparison_key)
         names.append(name)
     return names
+
+
+def _artifact_kind(payload: ArtifactPayload) -> Artifact.Kind:
+    """Return a typed kind or reject it before any durable storage is reserved."""
+
+    try:
+        return Artifact.Kind(payload.kind)
+    except (TypeError, ValueError) as error:
+        raise RevisionCreationError("artifact kind is not supported") from error
+
+
+def _authoritative_media_type(payload: ArtifactPayload) -> str:
+    """Validate and return the canonical MIME persisted for one payload.
+
+    Text uploads may include the normal UTF-8 declaration at the upload boundary, but the
+    artifact metadata remains the exact bare MIME required by the delivery contract.  Binary
+    IMAGE/FONT kinds have multiple valid subtypes and therefore cannot be inferred here.
+    """
+
+    kind = _artifact_kind(payload).value
+    allowed = ARTIFACT_MEDIA_TYPES[kind]
+    supplied = payload.media_type
+    if supplied is None:
+        if len(allowed) != 1:
+            raise RevisionCreationError("artifact media type is required for this artifact kind")
+        return allowed[0]
+    if not isinstance(supplied, str) or not supplied.strip():
+        raise RevisionCreationError("artifact media type is not supported")
+
+    pieces = [piece.strip() for piece in supplied.split(";")]
+    base = pieces[0].casefold()
+    if base not in allowed:
+        raise RevisionCreationError("artifact media type is not allowed for this artifact kind")
+    # The upload validator may receive ``text/*; charset=utf-8`` from multipart metadata.  It
+    # is safe to normalize only this known parameter; no arbitrary parameter reaches metadata.
+    for parameter in pieces[1:]:
+        key, separator, value = parameter.partition("=")
+        if (
+            not separator
+            or key.casefold() != "charset"
+            or value.strip().strip('"').casefold() != "utf-8"
+            or not base.startswith("text/")
+        ):
+            raise RevisionCreationError("artifact media type is not supported")
+    return base
 
 
 def _reserve_storage_key(storage: ArtifactStorage) -> StorageReservation:
@@ -330,7 +379,7 @@ def _commit_revision_metadata(
                 name_key=item.name.comparison_key,
                 storage_key=item.receipt.key.value,
                 byte_size=item.receipt.byte_size,
-                media_type=("text/html" if item.payload.kind == Artifact.Kind.HTML else "text/csv"),
+                media_type=item.media_type,
                 sha256=item.receipt.sha256,
             ).save(force_insert=True)
 

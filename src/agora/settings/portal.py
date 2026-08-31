@@ -64,6 +64,13 @@ TEMPLATES = [
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / ".local" / "static"
+# One HTML entry point plus at most 50 supporting files. Django enforces this while parsing the
+# multipart request, before the package validator independently counts and stages every part.
+DATA_UPLOAD_MAX_NUMBER_FILES = 51
+AGORA_DEVELOPMENT_LIVE_RELOAD = (
+    RUNTIME.environment == "development"
+    and os.environ.get("AGORA_DEVELOPMENT_LIVE_RELOAD") == "true"
+)
 
 CSRF_COOKIE_NAME = "__Host-agora_csrf"
 CSRF_COOKIE_DOMAIN = None

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agora"
 version = "0.1.0"
-description = "Secure internal publishing for self-contained HTML dashboards"
+description = "Secure internal publishing for versioned HTML dashboard packages"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [

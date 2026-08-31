@@ -28,9 +28,13 @@ from agora.persistence.storage import (
 )
 from agora.persistence.uploads import create_upload_revision
 from agora.uploads import (
+    UPLOAD_EXTENSION_MAP,
+    UPLOAD_EXTENSION_TO_KIND,
+    UPLOAD_EXTENSION_TO_MEDIA_TYPE,
     StagedUpload,
     StagedUploadFile,
     UploadIssueCode,
+    UploadIssueField,
     UploadKind,
     UploadLimits,
     UploadPart,
@@ -56,6 +60,19 @@ def valid_html(body: bytes = b"") -> bytes:
 
 def valid_csv(value: bytes = b"1") -> bytes:
     return b"name,value\nitem," + value + b"\n"
+
+
+def valid_binary(extension: str) -> bytes:
+    signatures = {
+        "png": b"\x89PNG\r\n\x1a\n",
+        "jpg": b"\xff\xd8",
+        "jpeg": b"\xff\xd8",
+        "gif": b"GIF89a",
+        "webp": b"RIFF\x00\x00\x00\x00WEBP",
+        "woff": b"wOFF",
+        "woff2": b"wOF2",
+    }
+    return signatures[extension] + b"\x00\xffpackage-bytes"
 
 
 def rejection(parts: Iterable[UploadPart], *, limits: UploadLimits | None = None) -> UploadRejected:
@@ -107,6 +124,285 @@ def test_valid_csv_is_staged_and_references_are_normalized() -> None:
         assert b"".join(staged.files[1].iter_chunks()) == csv_content
     finally:
         staged.close()
+
+
+def test_authoritative_extension_maps_cover_all_flat_package_types() -> None:
+    assert set(UPLOAD_EXTENSION_TO_KIND) == {
+        "html",
+        "csv",
+        "css",
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "woff",
+        "woff2",
+    }
+    assert UPLOAD_EXTENSION_MAP["jpg"] == (UploadKind.IMAGE, "image/jpeg")
+    assert UPLOAD_EXTENSION_MAP["woff2"] == (UploadKind.FONT, "font/woff2")
+    assert UPLOAD_EXTENSION_TO_MEDIA_TYPE["css"] == "text/css"
+
+
+@pytest.mark.parametrize(
+    ("extension", "kind", "media_type"),
+    [
+        ("png", UploadKind.IMAGE, "image/png"),
+        ("jpg", UploadKind.IMAGE, "image/jpeg"),
+        ("jpeg", UploadKind.IMAGE, "image/jpeg"),
+        ("gif", UploadKind.IMAGE, "image/gif"),
+        ("webp", UploadKind.IMAGE, "image/webp"),
+        ("woff", UploadKind.FONT, "font/woff"),
+        ("woff2", UploadKind.FONT, "font/woff2"),
+    ],
+)
+def test_binary_assets_are_byte_preserving_and_not_utf8_decoded(
+    extension: str, kind: UploadKind, media_type: str
+) -> None:
+    content = valid_binary(extension)
+    staged = stage_upload(
+        [
+            part("dashboard.html", [valid_html()]),
+            part(
+                f"asset.{extension}",
+                [content[:2], b"", content[2:]],
+                media_type="application/octet-stream",
+            ),
+        ]
+    )
+    try:
+        item = staged.files[1]
+        assert item.kind == kind
+        assert item.media_type == media_type
+        assert item.byte_size == len(content)
+        assert item.sha256 == hashlib.sha256(content).hexdigest()
+        assert b"".join(item.iter_chunks(2)) == content
+    finally:
+        staged.close()
+
+
+@pytest.mark.parametrize(
+    ("extension", "content"),
+    [
+        ("png", b"not a png"),
+        ("jpg", b"not a jpeg"),
+        ("gif", b"GIF"),
+        ("webp", b"RIFF\x00\x00\x00\x00WEBX"),
+        ("woff", b"not a font"),
+        ("woff2", b"wOFF"),
+    ],
+)
+def test_binary_signature_must_match_authoritative_extension(
+    extension: str, content: bytes
+) -> None:
+    error = rejection(
+        [part("dashboard.html", [valid_html()]), part(f"asset.{extension}", [content])]
+    )
+    assert error.issue.code == UploadIssueCode.MEDIA_TYPE_MISMATCH
+
+
+def test_flat_package_links_and_general_references_are_typed() -> None:
+    html = valid_html(
+        b'<link rel="stylesheet" href="theme.css">'
+        b'<link rel="icon" href="logo.PNG">'
+        b'<img src="logo.PNG">'
+        b'<script>fetch("./data.csv")</script>'
+    )
+    css = b'body{background:url("logo.PNG")}@font-face{src:url("screen.woff2")}'
+    staged = stage_upload(
+        [
+            part("dashboard.html", [html]),
+            part("theme.css", [css]),
+            part("logo.png", [valid_binary("png")]),
+            part("screen.woff2", [valid_binary("woff2")]),
+            part("data.csv", [valid_csv()]),
+        ]
+    )
+    try:
+        assert staged.referenced_artifact_names == frozenset(
+            {"theme.css", "logo.png", "screen.woff2", "data.csv"}
+        )
+        assert staged.referenced_csv_names == frozenset({"data.csv"})
+    finally:
+        staged.close()
+
+
+def test_url_encoded_space_resolves_to_a_flat_supporting_filename() -> None:
+    staged = stage_upload(
+        [
+            part(
+                "dashboard.html",
+                [valid_html(b'<script>fetch("sales%20data.csv")</script>')],
+            ),
+            part("sales data.csv", [valid_csv()]),
+        ]
+    )
+    try:
+        assert staged.referenced_artifact_names == frozenset({"sales data.csv"})
+    finally:
+        staged.close()
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [b"fetch(`data.csv`)", b"d3.csv(`data.csv`)", b"fetch(`data.csv`, {cache: 'no-store'})"],
+)
+def test_static_template_literal_resolves_to_a_local_csv(expression: bytes) -> None:
+    staged = stage_upload(
+        [
+            part("dashboard.html", [valid_html(b"<script>" + expression + b"</script>")]),
+            part("data.csv", [valid_csv()]),
+        ]
+    )
+    try:
+        assert staged.referenced_csv_names == frozenset({"data.csv"})
+    finally:
+        staged.close()
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        b"fetch(`./${csvStem}.csv`)",
+        b"d3.csv(`${csvStem}.csv`)",
+        b"fetch(`./${csvStem}.csv?cache=${Date.now()}`)",
+    ],
+)
+def test_interpolated_template_data_path_is_runtime_scoped(expression: bytes) -> None:
+    staged = stage_upload(
+        [
+            part("dashboard.html", [valid_html(b"<script>" + expression + b"</script>")]),
+            part("data.csv", [valid_csv()]),
+        ]
+    )
+    try:
+        assert staged.referenced_csv_names == frozenset()
+    finally:
+        staged.close()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'<link rel="stylesheet" href="missing.css">',
+        b'<link rel="stylesheet" href="theme.css?cache=1">',
+        b'<link rel="stylesheet" href="../theme.css">',
+        b'<img src="missing.png">',
+        b'<img src="logo.png#fragment">',
+        b'<img src="https://cdn.example/logo.png">',
+        b'<img src="logo\\.png">',
+        b'<style>body{background:url("missing.png")}</style>',
+        b'<style>body{background:url("../logo.png")}</style>',
+        b'<style>body{background:url("%2e%2e%2flogo.png")}</style>',
+        b'<style>body{background:url("%252e%252e%252flogo.png")}</style>',
+        b'<style>body{background:url("font.css")}</style>',
+    ],
+)
+def test_undeclared_external_and_wrong_kind_asset_references_are_rejected(body: bytes) -> None:
+    error = rejection(
+        [
+            part("dashboard.html", [valid_html(body)]),
+            part("theme.css", [b"body{}"]),
+            part("logo.png", [valid_binary("png")]),
+            part("data.csv", [valid_csv()]),
+        ]
+    )
+    assert error.issue.code in {
+        UploadIssueCode.EXTERNAL_DEPENDENCY,
+        UploadIssueCode.INVALID_ASSET_REFERENCE,
+        UploadIssueCode.MISSING_ASSET_REFERENCE,
+    }
+
+
+def test_css_and_html_safe_data_blob_and_anchor_references_remain_allowed() -> None:
+    body = (
+        b'<a href="#section">anchor</a>'
+        b'<img src="data:image/png;base64,AA==">'
+        b'<img src="blob:opaque">'
+        b"<style>body{background:url(data:image/png;base64,AA==)}</style>"
+    )
+    staged = stage_upload([part("dashboard.html", [valid_html(body)])])
+    try:
+        assert staged.referenced_artifact_names == frozenset()
+    finally:
+        staged.close()
+
+
+def test_css_escapes_resolve_local_assets_but_cannot_hide_external_dependencies() -> None:
+    staged = stage_upload(
+        [
+            part(
+                "dashboard.html",
+                [valid_html(rb'<style>body{background:url("l\6f go.png")}</style>')],
+            ),
+            part("logo.png", [valid_binary("png")]),
+        ]
+    )
+    try:
+        assert staged.referenced_artifact_names == frozenset({"logo.png"})
+    finally:
+        staged.close()
+
+    for body in (
+        rb'<style>@\69mport url("theme.css")</style>',
+        rb"<style>body{background:u\72l(h\74tps://evil.example/x.png)}</style>",
+        rb"<style>body{src:url(data:font/ttf;base64,AA==)}</style>",
+    ):
+        error = rejection([part("dashboard.html", [valid_html(body)])])
+        assert error.issue.code == UploadIssueCode.EXTERNAL_DEPENDENCY
+
+
+@pytest.mark.parametrize("expression", [b"d3.csv(url)", b"d3.csv()", b"d3 . csv(source)"])
+def test_d3_csv_must_use_a_literal_local_csv_reference(expression: bytes) -> None:
+    error = rejection(
+        [
+            part("dashboard.html", [valid_html(b"<script>" + expression + b"</script>")]),
+            part("data.csv", [valid_csv()]),
+        ]
+    )
+    assert error.issue.code == UploadIssueCode.EXTERNAL_DEPENDENCY
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_field"),
+    [
+        (
+            b'<script src="https://cdn.example/chart.js"></script>',
+            UploadIssueField.HTML_SCRIPT_SOURCE,
+        ),
+        (
+            b'<style>@import "theme.css";</style>',
+            UploadIssueField.CSS_IMPORT,
+        ),
+        (
+            b'<script>const source = "https://example.test/data";</script>',
+            UploadIssueField.INLINE_SCRIPT_URL,
+        ),
+        (
+            b"<script>new XMLHttpRequest()</script>",
+            UploadIssueField.INLINE_NETWORK_API,
+        ),
+        (
+            b"<script>fetch(csvName)</script>",
+            UploadIssueField.DATA_IDENTIFIER,
+        ),
+        (
+            b"<script>fetch(`data.csv)</script>",
+            UploadIssueField.DATA_TEMPLATE_LITERAL,
+        ),
+        (
+            b"<script>fetch(prefix + '.csv')</script>",
+            UploadIssueField.DATA_IDENTIFIER,
+        ),
+    ],
+)
+def test_external_dependency_reports_safe_structural_field(
+    body: bytes, expected_field: UploadIssueField
+) -> None:
+    error = rejection([part("dashboard.html", [valid_html(body)])])
+
+    assert error.issue.code == UploadIssueCode.EXTERNAL_DEPENDENCY
+    assert error.issue.field == expected_field
 
 
 @pytest.mark.parametrize("declared_length", [None, 0, 1, 10_000_000])
@@ -387,12 +683,17 @@ def test_csv_blank_only_content_is_empty_and_html_looking_content_is_misleading(
         b'<script>import "./library.js"</script>',
         b'<script>new Worker("worker.js")</script>',
         b'<script>fetch("https://evil.example/data.csv")</script>',
+        b"<script>fetch(`https://evil.example/data.csv`)</script>",
         b"<script>fetch(url)</script>",
     ],
 )
 def test_html_rejects_external_or_unapproved_runtime_dependencies(body: bytes) -> None:
     error = rejection([part("dashboard.html", [valid_html(body)])])
-    assert error.issue.code == UploadIssueCode.EXTERNAL_DEPENDENCY
+    assert error.issue.code in {
+        UploadIssueCode.EXTERNAL_DEPENDENCY,
+        UploadIssueCode.INVALID_ASSET_REFERENCE,
+        UploadIssueCode.MISSING_ASSET_REFERENCE,
+    }
 
 
 def test_html_allows_inline_css_js_safe_media_and_revision_csv_references() -> None:
@@ -538,6 +839,7 @@ def test_limits_mapping_properties_and_advisory_media_type_are_typed() -> None:
         }
     )
     assert limits.max_csv_files == 2
+    assert limits.max_supporting_files == 2
     assert limits.max_file_bytes == 10
     assert (
         part("dashboard.html", [valid_html()], media_type="text/html").declared_media_type
@@ -702,6 +1004,8 @@ def test_html_attribute_policy_and_reference_edge_cases() -> None:
         b'<meta name="x" content="https://evil.example">',
         b'<img src="">',
         b'<a href="  ">bad</a>',
+        b'<a href="dashboard.html">entry point is not a supporting file</a>',
+        b'<video src="data.csv"></video>',
         b'<img srcset="data:image/png;base64,AA==">',
         b'<html manifest="manifest.appcache"></html>',
         b'<a ping="https://evil.example">x</a>',
@@ -716,6 +1020,8 @@ def test_html_attribute_policy_and_reference_edge_cases() -> None:
             UploadIssueCode.EXTERNAL_DEPENDENCY,
             UploadIssueCode.INVALID_CSV_REFERENCE,
             UploadIssueCode.MISSING_CSV_REFERENCE,
+            UploadIssueCode.INVALID_ASSET_REFERENCE,
+            UploadIssueCode.MISSING_ASSET_REFERENCE,
             UploadIssueCode.HTML_MALFORMED,
         }
 

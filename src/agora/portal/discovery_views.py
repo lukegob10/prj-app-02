@@ -6,7 +6,6 @@ from typing import cast
 from urllib.parse import urlencode
 from uuid import UUID
 
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
@@ -21,8 +20,6 @@ from agora.persistence.discovery import (
     DiscoveryScope,
     DiscoverySearch,
     authorized_published_dashboard,
-    favorite_dashboards,
-    recently_viewed_dashboards,
     search_dashboards,
 )
 from agora.persistence.enhancement_queries import dashboard_tags
@@ -34,47 +31,32 @@ from agora.persistence.enhancements import (
 )
 from agora.persistence.models import Dashboard, User
 from agora.persistence.pagination import CursorPage, InvalidCursor, paginate_keyset
-from agora.persistence.projects import manageable_project, owned_projects, shared_projects
+from agora.persistence.projects import manageable_project
 
 from .discovery_forms import DashboardSearchForm, DashboardTagsForm
 from .security import safe_next_url
 
-HOME_PROJECT_LIMIT = 5
 
+def home(request: HttpRequest, *, page_size: int = DISCOVERY_PAGE_SIZE) -> HttpResponse:
+    """Render the public landing page or the unified authenticated Projects screen."""
 
-def home(request: HttpRequest) -> HttpResponse:
-    """Render the public introduction or bounded authenticated return surfaces."""
-
-    recent_owned: tuple[Dashboard, ...] = ()
-    recent_shared: tuple[Dashboard, ...] = ()
-    favorites: tuple[Dashboard, ...] = ()
-    recently_viewed: tuple[Dashboard, ...] = ()
-    is_authenticated = isinstance(request.user, User) and request.user.is_authenticated
-    if is_authenticated:
-        user = cast(User, request.user)
-        recent_owned = tuple(owned_projects(user.id)[:HOME_PROJECT_LIMIT])
-        recent_shared = tuple(shared_projects(user.id)[:HOME_PROJECT_LIMIT])
-        favorites = tuple(favorite_dashboards(user_id=user.id))
-        recently_viewed = tuple(recently_viewed_dashboards(user_id=user.id))
-
-    return render(
-        request,
-        "portal/home.html",
-        {
-            "content_origin": settings.AGORA_CONTENT_ORIGIN,
-            "environment": settings.AGORA_ENVIRONMENT,
-            "favorites": favorites,
-            "hide_account_menu": not is_authenticated,
-            "recent_owned": recent_owned,
-            "recent_shared": recent_shared,
-            "recently_viewed": recently_viewed,
-        },
-    )
+    if isinstance(request.user, User) and request.user.is_authenticated:
+        return _project_workspace(request, page_size=page_size)
+    return render(request, "portal/home.html", {"hide_account_menu": True})
 
 
 @login_required
 @require_http_methods(["GET"])
 def project_list(request: HttpRequest, *, page_size: int = DISCOVERY_PAGE_SIZE) -> HttpResponse:
+    """Redirect the retired Projects URL to the unified authenticated root screen."""
+
+    del page_size
+    query = request.GET.urlencode()
+    destination = reverse("home")
+    return redirect(f"{destination}?{query}" if query else destination)
+
+
+def _project_workspace(request: HttpRequest, *, page_size: int) -> HttpResponse:
     """Search one explicit owner or active-viewer scope with signed keyset paging."""
 
     user = cast(User, request.user)
@@ -108,7 +90,7 @@ def project_list(request: HttpRequest, *, page_size: int = DISCOVERY_PAGE_SIZE) 
     else:
         project_page = CursorPage(items=(), previous_cursor=None, next_cursor=None)
 
-    list_url = reverse("project-list")
+    list_url = reverse("home")
     scope_query = {"scope": scope.value} if scope is DiscoveryScope.SHARED else {}
     preserved_query = {**scope_query, "query": search_query}
     project_page = project_page.with_urls(
@@ -177,7 +159,7 @@ def project_tags(request: HttpRequest, project_id: UUID) -> HttpResponse:
         request,
         "portal/discovery/tags.html",
         {
-            "cancel_url": reverse("project-list"),
+            "cancel_url": reverse("home"),
             "project": project,
             "tag_action_url": reverse("project-tags", args=[project.id]),
             "tag_form": tag_form,

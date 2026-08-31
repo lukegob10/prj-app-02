@@ -18,6 +18,9 @@
       </nav>
       <div class="portal-render-shell__meta">
         {% if is_preview %}{% include "portal/components/status-badge.html" with label="Private preview" tone="warning" %}{% else %}{% include "portal/components/status-badge.html" with label="Published" tone="positive" %}{% endif %}
+        {% if not is_preview %}
+          {% include "portal/discovery/_favorite_form.html" with project=project favorite_active=is_favorite %}
+        {% endif %}
         <details class="portal-render-details">
           <summary aria-label="Dashboard details">Details</summary>
           <div class="portal-render-details__panel">

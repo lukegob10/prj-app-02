@@ -702,6 +702,7 @@ def prepared_artifact(
         name=normalize_logical_name("dashboard.html"),
         payload=payload(Artifact.Kind.HTML, "dashboard.html", content),
         receipt=receipt,
+        media_type="text/html",
     )
     if not verified:
         assert item.receipt.byte_size > 0
@@ -764,6 +765,7 @@ def test_metadata_commit_rechecks_owner_reservation_and_key_ownership(
             byte_size=artifact.byte_size,
             sha256=artifact.sha256,
         ),
+        media_type="text/html",
     )
     with pytest.raises(RevisionCreationError, match="already owned"):
         persistence_services._commit_revision_metadata(
@@ -1105,6 +1107,8 @@ def test_grant_relationship_and_wrong_revoker_are_model_guarded(
     )
     with pytest.raises(ValidationError, match="only the dashboard owner can revoke"):
         wrong_revoker.full_clean()
+    with pytest.raises(DatabaseError), transaction.atomic():
+        ViewerGrant.objects.bulk_create([wrong_revoker])
 
 
 def test_viewer_grants_are_unique_owner_created_and_retained(
@@ -1122,7 +1126,7 @@ def test_viewer_grants_are_unique_owner_created_and_retained(
         ViewerGrant.objects.bulk_create(
             [ViewerGrant(dashboard=dashboard, viewer=viewer, created_by=owner)]
         )
-    with pytest.raises(IntegrityError), transaction.atomic():
+    with pytest.raises(DatabaseError), transaction.atomic():
         ViewerGrant.objects.bulk_create(
             [ViewerGrant(dashboard=dashboard, viewer=owner, created_by=owner)]
         )
@@ -1219,12 +1223,14 @@ def test_critical_oracle_constraints_indexes_and_triggers_are_installed() -> Non
     retired_lifetime_grant_constraint = connection.ops.quote_name(
         "agora_grant_dashboard_viewer_unique"
     ).strip('"')
-    expected_constraints = {
-        "AGORA_DASH_LATEST_OWNED_FK",
-        "AGORA_DASH_PUBLISHED_OWNED_FK",
+    retired_owner_equality_constraints = {
         "AGORA_REV_CREATOR_OWNER_FK",
         "AGORA_GRANT_CREATOR_OWNER_FK",
         "AGORA_GRANT_REVOKER_OWNER_FK",
+    }
+    expected_constraints = {
+        "AGORA_DASH_LATEST_OWNED_FK",
+        "AGORA_DASH_PUBLISHED_OWNED_FK",
         "AGORA_ARTIFACT_STORAGE_SHARDS",
         "AGORA_RESERVATION_STORAGE_SHARDS",
         *(connection.ops.quote_name(name).strip('"') for name in logical_constraint_names),
@@ -1292,6 +1298,7 @@ def test_critical_oracle_constraints_indexes_and_triggers_are_installed() -> Non
     assert not any(name.startswith("PERSISTENCE_") for name in tables)
     assert constraints == expected_constraints
     assert retired_lifetime_grant_constraint not in installed_constraints
+    assert retired_owner_equality_constraints.isdisjoint(installed_constraints)
     assert indexes == expected_indexes
     assert index_definitions["AGORA_GRANT_ACTIVE_UQ_IDX"] == (
         "UNIQUE",
@@ -1305,11 +1312,19 @@ def test_critical_oracle_constraints_indexes_and_triggers_are_installed() -> Non
             "NONUNIQUE",
             "TB_TA_AGORA_VIEWER_GRANT",
         )
-    assert lookup_index_columns == {
-        "AGORA_GRANT_DASH_ACTIVE_IDX": ["DASHBOARD_ID", "REVOKED_AT"],
-        "AGORA_GRANT_SCOPE_ACTIVE_IDX": ["DASHBOARD_ID", "VIEWER_ID", "REVOKED_AT"],
-        "AGORA_GRANT_VIEWER_ACTIVE_IDX": ["VIEWER_ID", "REVOKED_AT"],
-    }
+    assert lookup_index_columns["AGORA_GRANT_DASH_ACTIVE_IDX"] == [
+        "DASHBOARD_ID",
+        "REVOKED_AT",
+    ]
+    assert lookup_index_columns["AGORA_GRANT_SCOPE_ACTIVE_IDX"] == [
+        "DASHBOARD_ID",
+        "VIEWER_ID",
+        "REVOKED_AT",
+    ]
+    viewer_index_columns = lookup_index_columns["AGORA_GRANT_VIEWER_ACTIVE_IDX"]
+    assert viewer_index_columns[:2] == ["VIEWER_ID", "REVOKED_AT"]
+    assert len(viewer_index_columns) == 4
+    assert all(column.startswith("SYS_NC") for column in viewer_index_columns[2:])
     normalized_active_grant_expressions = [
         " ".join(
             str(expression).upper().replace('"', "").replace("(", " ").replace(")", " ").split()

@@ -7,7 +7,8 @@ from agora.portal.views import home, project_list
 
 urlpatterns = [
     path("", home, name="home"),
-    path("projects/", project_list, name="project-list"),
+    path("", home, name="project-list"),
+    path("projects/", project_list, name="legacy-project-list"),
     path("projects/<uuid:project_id>/tags/", project_tags, name="project-tags"),
     path(
         "projects/<uuid:project_id>/favorite/",

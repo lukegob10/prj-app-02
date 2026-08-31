@@ -1,4 +1,4 @@
-"""Persistence adapter for validated HTML/CSV upload revisions."""
+"""Persistence adapter for validated dashboard-package upload revisions."""
 
 from __future__ import annotations
 
@@ -50,11 +50,12 @@ def upload_revision(**kwargs: object) -> Revision:
 def _payloads(staged: StagedUpload) -> Iterable[ArtifactPayload]:
     for file in staged.files:
         yield ArtifactPayload(
-            kind=Artifact.Kind.HTML if file.kind.value == "html" else Artifact.Kind.CSV,
+            kind=Artifact.Kind(file.kind.value),
             logical_name=file.logical_name.display,
             chunks=file.iter_chunks(),
             expected_size=file.byte_size,
             expected_sha256=file.sha256,
+            media_type=file.media_type,
         )
 
 

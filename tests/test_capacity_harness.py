@@ -137,7 +137,7 @@ def test_request_shapes_are_narrow_and_sensitive_fields_are_never_represented() 
     shapes = build_static_request_shapes(profile)
 
     assert set(shapes) == {"shared_with_me", "grant_check", "render_start"}
-    assert shapes["shared_with_me"].path == "/projects/?scope=shared"
+    assert shapes["shared_with_me"].path == "/?scope=shared"
     assert shapes["grant_check"].method == "GET"
     assert shapes["render_start"].capture_body
     assert all(shape.origin == "portal" for shape in shapes.values())

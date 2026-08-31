@@ -75,7 +75,7 @@ it does not appear in the physical Oracle namespace.
 | Portal | Validated configuration and authenticated principal | All browser input and uploaded bytes | Never return uploaded HTML, mark it safe, insert it into DOM/`srcdoc`, or create same-origin `blob:`/`data:` documents from it. |
 | Identity | Administrator-provisioned canonical User record | Login fields, form SOEIDs, identity-like headers | Normalize once; application policies consume an immutable authenticated principal, never a request-selected identity. |
 | Policy/data | Constrained internal identifiers and database constraints | Route IDs, filenames, publication/Grant claims | Authorize before resolving metadata or artifacts; opaque IDs add no authority. |
-| Content | Exact portal origin and content-scoped render authorization | Uploaded HTML/CSV and every request parameter | GET/HEAD-only artifact gateway, no portal sessions, mutations, templates, administration, or general APIs. |
+| Content | Exact portal origin and content-scoped render authorization | Uploaded dashboard-package bytes and every request parameter | GET/HEAD-only artifact gateway, no portal sessions, mutations, templates, administration, or general APIs. |
 | Storage | Generated internal keys and adapter-owned absolute root | User filenames and artifact bytes | Storage keys never derive from filenames; artifacts remain outside public/static roots and are accessible only through metadata plus policy. |
 
 Hostile Revisions must not share ambient credentials or durable browser storage. The AG-007
@@ -94,11 +94,11 @@ Portal-issued render credentials are 256-bit random values stored only as SHA-25
 expire after five minutes and bind viewer, current authentication version, Dashboard, Revision,
 audience, and current authorization state. The content process rechecks expiry, revocation,
 active-user state, ownership or Viewer Grant, publication pointer, and artifact scope for every
-HTML and CSV request. The local content launcher disables access logging because the short-lived
+package request. The local content launcher disables access logging because the short-lived
 bearer appears in the iframe path; production proxies must apply equivalent path redaction.
 Because `sandbox="allow-scripts"` gives uploaded HTML an opaque origin, only an already-authorized
-CSV response may opt into the exact `Access-Control-Allow-Origin: null` value. It also varies on
-`Origin`, never enables credentials or a wildcard, and grants nothing to HTML, failures, or
+Supporting Artifact response may opt into the exact `Access-Control-Allow-Origin: null` value. It
+also varies on `Origin`, never enables credentials or a wildcard, and grants nothing to HTML, failures, or
 non-null origins.
 
 ## Module ownership
@@ -110,7 +110,7 @@ src/agora/settings/base.py   non-browser shared settings
 src/agora/settings/portal.py trusted portal composition
 src/agora/settings/content.py isolated content composition
 src/agora/urls/portal.py     trusted UI/API routes only
-src/agora/urls/content.py    exact authorized HTML/CSV routes plus catch-all 404
+src/agora/urls/content.py    exact authorized package routes plus catch-all 404
 src/agora/rendering/         render authorization, delivery, CSP, and sandbox policy
 src/agora/portal/            trusted project, upload, preview, identity, and admin UI
 src/agora/persistence/       constrained metadata, domain services, migrations, private storage
@@ -128,7 +128,7 @@ capability comes from an explicit retained `ViewerGrant` scoped to `(dashboard_i
 An unrevoked grant is sufficient only when its viewer is active and for the exact pinned Published
 Revision.
 Administrators do not receive implicit Dashboard content access. Grant and revoke mutations,
-portal metadata, Shared with Me, render-token issuance, and content HTML/CSV delivery all call
+portal metadata, Shared with Me, render-token issuance, and content package delivery all call
 the same default-deny project policy, with generic not-found behavior for unrelated projects.
 
 Grant rows are retained epochs: revocation closes an epoch and a later regrant creates a new row.

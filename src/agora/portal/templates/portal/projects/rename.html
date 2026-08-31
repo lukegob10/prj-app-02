@@ -1,0 +1,24 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Rename {{ project.name }} | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow="Dashboard settings" title="Rename dashboard" intro="Change the display name without changing links, revisions, sharing, or publication state." %}
+  <section class="portal-section portal-section--compact" aria-label="Rename dashboard form">
+    <form class="portal-card portal-form-stack" method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="portal-form-field">
+        <label class="portal-form-field__label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+        <p class="portal-form-field__help" id="dashboard-name-help">{{ form.name.help_text }}</p>
+        {{ form.name }}
+        {% if form.name.errors %}<div class="portal-form-field__error" role="alert">{{ form.name.errors }}</div>{% endif %}
+      </div>
+      <div class="portal-action-group">
+        <a class="portal-button portal-button--quiet" href="{% url 'project-detail' project.id %}">Cancel</a>
+        <button class="portal-button portal-button--primary" type="submit">Save name</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

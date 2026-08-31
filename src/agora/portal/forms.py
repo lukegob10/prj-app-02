@@ -54,6 +54,25 @@ class ProjectForm(forms.Form):
     )
 
 
+class ProjectRenameForm(forms.Form):
+    """Owner-controlled dashboard display name."""
+
+    name = forms.CharField(
+        label="Dashboard name",
+        max_length=200,
+        strip=True,
+        help_text="Names do not need to be unique; other dashboards can use the same name.",
+        widget=forms.TextInput(
+            attrs={
+                "class": "portal-input",
+                "autocomplete": "off",
+                "aria-describedby": "dashboard-name-help",
+                "autofocus": True,
+            }
+        ),
+    )
+
+
 class GrantViewerForm(forms.Form):
     """Accept one canonical SOEID for a project-scoped Viewer grant."""
 
@@ -112,19 +131,41 @@ class UserSearchForm(forms.Form):
 
 
 class RevisionUploadForm(forms.Form):
-    """One HTML dashboard with optional CSV attachments."""
+    """One flat dashboard package selected through the native multi-file queue."""
 
-    html_file = forms.FileField(
-        label="Dashboard HTML",
-        help_text="Choose one self-contained .html file, up to 25 MB.",
-        widget=forms.FileInput(attrs={"class": "portal-input", "accept": ".html,text/html"}),
-    )
-    csv_files = MultipleFileField(
-        label="CSV attachments",
+    package_files = MultipleFileField(
+        label="Dashboard package files",
         required=False,
-        help_text="Optional: choose up to 50 .csv files. Combined upload limit: 100 MB.",
-        widget=MultipleFileInput(attrs={"class": "portal-input", "accept": ".csv,text/csv"}),
+        help_text=(
+            "Choose exactly one .html entry point and up to 50 supporting .csv, .css, image, "
+            "or web-font files. Each file may be up to 25 MB; combined upload limit: 100 MB."
+        ),
+        widget=MultipleFileInput(
+            attrs={
+                "class": "portal-dropzone__input",
+                "accept": (
+                    ".html,.csv,.css,.png,.jpg,.jpeg,.gif,.webp,.woff,.woff2,"
+                    "text/html,text/csv,text/css,image/png,image/jpeg,image/gif,image/webp,"
+                    "font/woff,font/woff2"
+                ),
+                "data-upload-input": "",
+                "aria-describedby": "upload-files-help upload-queue-summary",
+                "required": True,
+            }
+        ),
     )
+
+    def clean(self) -> dict[str, object]:
+        """Keep the new queue required while accepting former multipart field names."""
+
+        cleaned = super().clean() or {}
+        has_current_files = bool(self.files.getlist("package_files") or self.files.getlist("files"))
+        has_legacy_files = any(
+            self.files.getlist(field) for field in ("html_file", "supporting_files", "csv_files")
+        )
+        if not has_current_files and not has_legacy_files and "package_files" not in self.errors:
+            self.add_error("package_files", "Choose the files for this dashboard package.")
+        return cleaned
 
 
 class LoginForm(forms.Form):

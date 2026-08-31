@@ -25,6 +25,13 @@ from agora.rendering.authorization import (
 )
 
 _STREAM_CHUNK_SIZE = 64 * 1024
+_SUPPORTING_KINDS = (
+    Artifact.Kind.CSV,
+    Artifact.Kind.CSS,
+    Artifact.Kind.IMAGE,
+    Artifact.Kind.FONT,
+)
+_TEXT_MEDIA_TYPES = frozenset({"text/html", "text/csv", "text/css"})
 
 
 def render_html(request: HttpRequest, audience: str, token: str) -> HttpResponseBase:
@@ -45,17 +52,60 @@ def render_csv(
     token: str,
     logical_name: str,
 ) -> HttpResponseBase:
-    """Resolve a same-revision CSV by canonical metadata, never by a filesystem path."""
+    """Compatibility entry point for callers that explicitly request a CSV."""
+    return _render_supporting_artifact(
+        request,
+        audience,
+        token,
+        logical_name,
+        allowed_kinds=(Artifact.Kind.CSV,),
+    )
+
+
+def render_artifact(
+    request: HttpRequest,
+    audience: str,
+    token: str,
+    logical_name: str,
+) -> HttpResponseBase:
+    """Deliver one authorized same-revision supporting artifact by canonical metadata."""
+    return _render_supporting_artifact(request, audience, token, logical_name)
+
+
+def render_supporting_artifact(
+    request: HttpRequest,
+    audience: str,
+    token: str,
+    logical_name: str,
+) -> HttpResponseBase:
+    """Descriptive alias for the generic supporting-artifact delivery endpoint."""
+    return render_artifact(request, audience, token, logical_name)
+
+
+def _render_supporting_artifact(
+    request: HttpRequest,
+    audience: str,
+    token: str,
+    logical_name: str,
+    *,
+    allowed_kinds: tuple[Artifact.Kind, ...] = _SUPPORTING_KINDS,
+) -> HttpResponseBase:
+    """Resolve a same-revision supporting artifact, never by a filesystem path."""
     if request.method not in {"GET", "HEAD"}:
         return _render_failure(request, HttpResponseNotAllowed(["GET", "HEAD"]))
     try:
         normalized = normalize_logical_name(logical_name)
         target = resolve_render_authorization(token, audience=audience)
         artifact = target.revision.artifacts.get(
-            kind=Artifact.Kind.CSV,
+            kind__in=allowed_kinds,
             name_key=normalized.comparison_key,
         )
-    except Artifact.DoesNotExist, InvalidLogicalName, RenderAuthorizationDenied:
+    except (
+        Artifact.DoesNotExist,
+        Artifact.MultipleObjectsReturned,
+        InvalidLogicalName,
+        RenderAuthorizationDenied,
+    ):
         return _render_failure(request, HttpResponseNotFound())
     response = _artifact_response(request, artifact)
     if response.status_code < 400 and request.headers.get("Origin") == "null":
@@ -73,7 +123,9 @@ def _artifact_response(request: HttpRequest, artifact: Artifact) -> HttpResponse
     except ArtifactStorageError, FileNotFoundError:
         return _render_failure(request, HttpResponseNotFound())
 
-    content_type = f"{artifact.media_type}; charset=utf-8"
+    content_type = artifact.media_type
+    if artifact.media_type in _TEXT_MEDIA_TYPES:
+        content_type = f"{content_type}; charset=utf-8"
     if request.method == "HEAD":
         response: HttpResponseBase = HttpResponse(content_type=content_type)
     else:
@@ -98,4 +150,9 @@ def _render_failure(request: HttpRequest, response: HttpResponse) -> HttpRespons
     return response
 
 
-__all__ = ["render_csv", "render_html"]
+__all__ = [
+    "render_artifact",
+    "render_csv",
+    "render_html",
+    "render_supporting_artifact",
+]

@@ -16,6 +16,10 @@ class ProjectOwnerUnavailable(RuntimeError):
     """Raised when a project owner is missing or no longer active."""
 
 
+class ProjectRenameDenied(RuntimeError):
+    """Raised when a dashboard cannot be renamed through the owner boundary."""
+
+
 def owned_projects(owner_id: UUID) -> QuerySet[Dashboard]:
     """Return retained owner-visible projects in most-recently-updated order."""
     return (
@@ -235,8 +239,36 @@ def create_project(*, owner_id: UUID, name: str, description: str = "") -> Dashb
         return project
 
 
+def rename_project(*, project_id: UUID, owner_id: UUID, name: str) -> Dashboard:
+    """Rename one active owner-controlled dashboard without changing its stable identity."""
+    normalized_name = name.strip()
+    if not normalized_name or len(normalized_name) > 200:
+        raise ValueError("dashboard name must contain between 1 and 200 characters")
+
+    with transaction.atomic(durable=True):
+        project = get_one_or_none(
+            Dashboard.objects.select_for_update()
+            .filter(id=project_id, owner_id=owner_id, owner__is_active=True)
+            .exclude(state__in=(Dashboard.State.ARCHIVED, Dashboard.State.DELETED))
+        )
+        if project is None:
+            raise ProjectRenameDenied
+        if project.name == normalized_name:
+            return project
+
+        project.name = normalized_name
+        project.save(update_fields=("name", "updated_at"))
+        AuditEvent.objects.create(
+            event_type="dashboard.renamed",
+            actor_id=owner_id,
+            dashboard=project,
+        )
+        return project
+
+
 __all__ = [
     "ProjectOwnerUnavailable",
+    "ProjectRenameDenied",
     "create_project",
     "manageable_project",
     "owned_projects",
@@ -246,6 +278,7 @@ __all__ = [
     "project_grant_epoch",
     "project_grant_history",
     "project_revisions",
+    "rename_project",
     "shared_projects",
     "visible_project",
 ]

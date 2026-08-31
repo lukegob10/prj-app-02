@@ -1,19 +1,27 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from uuid import UUID
 
 import pytest
 from django.contrib.staticfiles import finders
+from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
+from django.http import HttpRequest
 from django.template import Context, Template
 from django.template.loader import render_to_string
-from django.test import Client
+from django.test import Client, RequestFactory, override_settings
+from django.utils.datastructures import MultiValueDict
 
-from agora.portal.forms import GrantViewerForm, UserSearchForm
+from agora.portal.context_processors import portal_shell
+from agora.portal.forms import GrantViewerForm, RevisionUploadForm, UserSearchForm
+from agora.portal.views import _request_upload_parts, _upload_error_message
+from agora.uploads import UploadIssue, UploadIssueCode, UploadIssueField, UploadRejected
 
 PORTAL_CSS = (
     Path(__file__).resolve().parents[1]
@@ -24,6 +32,8 @@ PORTAL_CSS = (
     / "portal"
     / "foundation.css"
 )
+UPLOAD_DROPZONE_JS = PORTAL_CSS.with_name("upload-dropzone.js")
+DEVELOPMENT_RELOAD_JS = PORTAL_CSS.with_name("development-reload.js")
 BRAND_ROOT = PORTAL_CSS.parent / "brand"
 TEMPLATE_ROOT = PORTAL_CSS.parents[2] / "templates" / "portal"
 
@@ -77,7 +87,7 @@ def test_portal_shell_renders_accessible_landmarks_and_truthful_states(client: C
 
     links = parser.attributes_for("a")
     assert {link.get("href") for link in links} >= {"#main-content", "/"}
-    assert sum(link.get("href") == "/login/" for link in links) == 1
+    assert sum(link.get("href") == "/login/" for link in links) == 2
     assert any(link.get("class") == "portal-skip-link" for link in links)
     assert any(link.get("aria-current") == "page" for link in links)
     assert any(
@@ -89,15 +99,207 @@ def test_portal_shell_renders_accessible_landmarks_and_truthful_states(client: C
 
     headings = [element for element, _ in parser.elements if element in {"h1", "h2", "h3"}]
     assert headings.count("h1") == 1
-    assert headings[:2] == ["h1", "h2"]
-    assert "Turn self-contained dashboards into governed projects" in parser.text
-    assert "From project to published dashboard" in parser.text
-    assert "Dashboard code stays outside the portal" in parser.text
-    assert "Sign in" in parser.text
+    assert headings == ["h1", "h2"]
+    assert "Share dashboards without giving up control" in parser.text
+    assert "Every release stays deliberate" in parser.text
+    assert "Every accepted upload is retained as an immutable revision" in parser.text
+    assert "Dashboard code runs outside the trusted portal" in parser.text
+    assert "Only approved users can open published work" in parser.text
+    assert "Administrator-provisioned access" not in parser.text
+    assert (
+        document.count(
+            '<a class="portal-nav__link portal-nav__link--primary" href="/login/">Sign In</a>'
+        )
+        == 2
+    )
     assert 'class="portal-public-hero"' in document
-    assert 'class="portal-public-workflow"' in document
+    assert 'class="portal-public-safeguards"' in document
+    assert 'class="portal-public-safeguards__list"' in document
+    assert "portal-public-workflow" not in document
+    assert "portal-public-boundary" not in document
     assert "portal-brand__mark" not in document
     assert "recommend" not in document.lower()
+
+
+def test_revision_upload_form_describes_supported_flat_package_files() -> None:
+    form = RevisionUploadForm()
+
+    assert tuple(form.fields) == ("package_files",)
+    assert form.fields["package_files"].label == "Dashboard package files"
+    assert "exactly one .html" in str(form.fields["package_files"].help_text)
+    assert "self-contained" not in str(form.fields["package_files"].help_text).lower()
+
+    accepted = form.fields["package_files"].widget.attrs["accept"]
+    assert accepted == (
+        ".html,.csv,.css,.png,.jpg,.jpeg,.gif,.webp,.woff,.woff2,"
+        "text/html,text/csv,text/css,image/png,image/jpeg,image/gif,image/webp,"
+        "font/woff,font/woff2"
+    )
+    assert form.fields["package_files"].widget.allow_multiple_selected is True
+    assert form.fields["package_files"].widget.attrs["data-upload-input"] == ""
+    assert form.fields["package_files"].widget.attrs["required"] is True
+
+    assert RevisionUploadForm(data={}, files=MultiValueDict()).is_valid() is False
+    legacy_form = RevisionUploadForm(
+        data={},
+        files=MultiValueDict(
+            {"html_file": [SimpleUploadedFile("dashboard.html", b"<html></html>")]}
+        ),
+    )
+    assert legacy_form.is_valid() is True
+
+
+def test_upload_template_uses_one_dropzone_and_states_replacement_policy() -> None:
+    source = (TEMPLATE_ROOT / "projects" / "upload.html").read_text(encoding="utf-8")
+    base_source = (TEMPLATE_ROOT / "base.html").read_text(encoding="utf-8")
+
+    assert "form.package_files" in source
+    assert "form.html_file" not in source
+    assert "form.supporting_files" not in source
+    assert "form.csv_files" not in source
+    assert "data-upload-dropzone" in source
+    assert "data-upload-list" in source
+    assert "upload-dropzone.js" not in source
+    assert "upload-dropzone.js" in base_source
+    assert "?v={{ development_reload.version }}" in base_source
+    assert 'class="portal-upload-feedback"' in source
+    assert "Drag and drop dashboard files" in source
+    assert "click anywhere to choose multiple files" in source
+    assert "replaces a queued file with the same name" in source
+    assert "one required HTML entry point" in source
+    assert "up to 50 supporting files" in source
+    assert "Relative references" in source
+    assert "Outside URLs are blocked" in source
+    assert "separate JavaScript files are not supported" in source
+    assert "Revisions are immutable" in source
+    assert "self-contained" not in source.lower()
+
+
+def test_upload_dropzone_script_merges_batches_without_rendering_untrusted_html() -> None:
+    source = UPLOAD_DROPZONE_JS.read_text(encoding="utf-8")
+
+    assert "new Map()" in source
+    assert "new DataTransfer()" in source
+    assert 'addEventListener("drop"' in source
+    assert 'addEventListener("dragenter"' in source
+    assert 'addEventListener("dragleave"' in source
+    assert 'addEventListener("change"' in source
+    assert 'addEventListener("cancel"' in source
+    assert 'document.addEventListener("dragover", preventNativeFileOpen, true)' in source
+    assert 'document.addEventListener("drop", preventNativeFileOpen, true)' in source
+    assert 'widget.dataset.uploadReady = "true"' in source
+    assert 'window.addEventListener("focus"' not in source
+    assert "queuedFiles.set(key, file)" in source
+    assert "dragDepth = Math.max(0, dragDepth - 1)" in source
+    assert "added to the upload queue" in source
+    assert "replaced the queued" in source
+    assert "textContent" in source
+    assert "innerHTML" not in source
+
+
+def _multipart_request(
+    files: Mapping[str, Sequence[UploadedFile[Any]]],
+) -> HttpRequest:
+    request = HttpRequest()
+    request.FILES = MultiValueDict({key: list(values) for key, values in files.items()})
+    return request
+
+
+@pytest.mark.parametrize(
+    ("files", "expected_code"),
+    [
+        (
+            {
+                "html_file": [
+                    SimpleUploadedFile("one.html", b"<html></html>"),
+                    SimpleUploadedFile("two.html", b"<html></html>"),
+                ]
+            },
+            UploadIssueCode.MULTIPLE_HTML,
+        ),
+        (
+            {
+                "html_file": [SimpleUploadedFile("dashboard.html", b"<html></html>")],
+                "unrecognized": [SimpleUploadedFile("hidden.bin", b"ignored bytes")],
+            },
+            UploadIssueCode.MALFORMED_MULTIPART,
+        ),
+        (
+            {
+                "html_file": [SimpleUploadedFile("dashboard.html", b"<html></html>")],
+                "supporting_files": [SimpleUploadedFile("data.csv", b"a,b\n1,2\n")],
+                "csv_files": [SimpleUploadedFile("legacy.csv", b"a,b\n3,4\n")],
+            },
+            UploadIssueCode.MALFORMED_MULTIPART,
+        ),
+        (
+            {
+                "package_files": [SimpleUploadedFile("dashboard.html", b"<html></html>")],
+                "html_file": [SimpleUploadedFile("legacy.html", b"<html></html>")],
+            },
+            UploadIssueCode.MALFORMED_MULTIPART,
+        ),
+    ],
+)
+def test_upload_request_rejects_hidden_or_ambiguous_multipart_files(
+    files: dict[str, list[SimpleUploadedFile]], expected_code: UploadIssueCode
+) -> None:
+    with pytest.raises(UploadRejected) as rejected:
+        _request_upload_parts(_multipart_request(files))
+
+    assert rejected.value.issue.code == expected_code
+
+
+def test_upload_request_keeps_every_supporting_file_and_accepts_legacy_csv_key() -> None:
+    request = _multipart_request(
+        {
+            "html_file": [SimpleUploadedFile("dashboard.html", b"<html></html>")],
+            "csv_files": [
+                SimpleUploadedFile("one.csv", b"a,b\n1,2\n"),
+                SimpleUploadedFile("two.csv", b"a,b\n3,4\n"),
+            ],
+        }
+    )
+
+    assert [part.filename for part in _request_upload_parts(request)] == [
+        "dashboard.html",
+        "one.csv",
+        "two.csv",
+    ]
+
+
+def test_upload_error_message_explains_the_safe_external_dependency_category() -> None:
+    error = UploadRejected(
+        UploadIssue(
+            UploadIssueCode.EXTERNAL_DEPENDENCY,
+            part_index=0,
+            field=UploadIssueField.HTML_SCRIPT_SOURCE,
+        )
+    )
+
+    message = _upload_error_message(error)
+
+    assert message.startswith("Problem with a selected file:")
+    assert "uses a script src" in message
+    assert "JavaScript must be inline" in message
+
+
+def test_upload_request_keeps_the_unified_queue_order() -> None:
+    request = _multipart_request(
+        {
+            "package_files": [
+                SimpleUploadedFile("theme.css", b"body{}"),
+                SimpleUploadedFile("dashboard.html", b"<html></html>"),
+                SimpleUploadedFile("data.csv", b"a,b\n1,2\n"),
+            ]
+        }
+    )
+
+    assert [part.filename for part in _request_upload_parts(request)] == [
+        "theme.css",
+        "dashboard.html",
+        "data.csv",
+    ]
 
 
 @pytest.mark.smoke
@@ -115,6 +317,10 @@ def test_login_page_uses_one_compact_sign_in_surface(client: Client) -> None:
     assert parser.attributes_for("button") == [
         {"class": "portal-button portal-button--primary", "type": "submit"}
     ]
+    assert (
+        '<button class="portal-button portal-button--primary" type="submit">Sign In</button>'
+        in document
+    )
     assert len(parser.attributes_for("h1")) == 1
     soeid_input = next(
         item for item in parser.attributes_for("input") if item.get("id") == "id_soeid"
@@ -158,7 +364,9 @@ def test_portal_shell_is_csp_compatible_and_uses_the_committed_stylesheet(client
             "href": "/static/portal/brand/apple-touch-icon.png",
         },
     ]
-    assert parser.attributes_for("script") == []
+    assert parser.attributes_for("script") == [
+        {"src": "/static/portal/upload-dropzone.js", "defer": None}
+    ]
     assert parser.attributes_for("style") == []
     assert all(not name.lower().startswith("on") for _, attrs in parser.elements for name in attrs)
     assert finders.find("portal/foundation.css") == str(PORTAL_CSS)
@@ -166,8 +374,42 @@ def test_portal_shell_is_csp_compatible_and_uses_the_committed_stylesheet(client
         BRAND_ROOT / "agora-wordmark-color.png"
     )
     assert finders.find("portal/brand/favicon-32.png") == str(BRAND_ROOT / "favicon-32.png")
-    assert "script-src 'none'" in response.headers["Content-Security-Policy"]
+    assert "script-src 'self'" in response.headers["Content-Security-Policy"]
     assert "style-src 'self'" in response.headers["Content-Security-Policy"]
+
+
+@pytest.mark.smoke
+@override_settings(AGORA_DEVELOPMENT_LIVE_RELOAD=True)
+def test_development_shell_enables_self_hosted_live_refresh(client: Client) -> None:
+    response = client.get("/", HTTP_HOST="portal.agora.test")
+    document = response.content.decode()
+
+    assert response.status_code == 200
+    assert re.search(r'href="/static/portal/foundation\.css\?v=[0-9a-f]{20}"', document)
+    assert 'src="/static/portal/development-reload.js"' in document
+    assert 'data-reload-request-method="GET"' in document
+    assert 'data-reload-url="/__dev__/reload/"' in document
+    assert re.search(r'data-reload-version="[0-9a-f]{20}"', document)
+    assert "script-src 'self'" in response.headers["Content-Security-Policy"]
+    assert "'unsafe-inline'" not in response.headers["Content-Security-Policy"]
+
+
+@override_settings(AGORA_DEVELOPMENT_LIVE_RELOAD=True)
+def test_development_shell_marks_post_responses_as_non_reloadable() -> None:
+    request = RequestFactory().post("/login/")
+    request.user = SimpleNamespace(is_authenticated=False)
+    request.resolver_match = SimpleNamespace(url_name="login")
+
+    context = portal_shell(request)
+
+    assert context["development_reload"]["request_method"] == "POST"
+
+
+def test_development_reload_client_never_replays_post_responses() -> None:
+    source = DEVELOPMENT_RELOAD_JS.read_text(encoding="utf-8")
+
+    assert 'requestMethod !== "GET"' in source
+    assert "window.location.reload()" in source
 
 
 def test_foundation_css_declares_responsive_accessibility_and_component_contracts() -> None:
@@ -198,11 +440,9 @@ def test_foundation_css_declares_responsive_accessibility_and_component_contract
         ".portal-page--render",
         ".portal-render-details__panel",
         ".portal-render-details__meta",
-        ".portal-home-hero",
-        ".portal-home-projects",
-        ".portal-home-project-stack",
         ".portal-public-hero",
-        ".portal-public-workflow",
+        ".portal-public-safeguards",
+        ".portal-public-safeguards__list",
         ".portal-page--login",
         ".portal-login-card",
         ".portal-page--workspace",
@@ -220,7 +460,6 @@ def test_foundation_css_declares_responsive_accessibility_and_component_contract
         assert rule in css
     assert ".portal-render-shell__back" not in css
     assert ".portal-brand__mark" not in css
-    assert ".portal-home-hero__stats" not in css
 
 
 def test_cursor_pagination_uses_native_links_without_total_count_assumptions() -> None:
@@ -228,8 +467,8 @@ def test_cursor_pagination_uses_native_links_without_total_count_assumptions() -
         "cursor-pagination",
         {
             "page": SimpleNamespace(
-                previous_url="/projects/?cursor=signed-previous",
-                next_url="/projects/?scope=shared&cursor=signed-next",
+                previous_url="/?cursor=signed-previous",
+                next_url="/?scope=shared&cursor=signed-next",
             ),
             "pagination_label": "Project results",
             "item_label": "projects",
@@ -244,12 +483,12 @@ def test_cursor_pagination_uses_native_links_without_total_count_assumptions() -
     assert parser.attributes_for("a") == [
         {
             "class": "portal-pagination__link portal-pagination__link--previous",
-            "href": "/projects/?cursor=signed-previous",
+            "href": "/?cursor=signed-previous",
             "rel": "prev",
         },
         {
             "class": "portal-pagination__link portal-pagination__link--next",
-            "href": "/projects/?scope=shared&cursor=signed-next",
+            "href": "/?scope=shared&cursor=signed-next",
             "rel": "next",
         },
     ]
@@ -277,11 +516,11 @@ def test_empty_cursor_page_keeps_safe_back_navigation() -> None:
             "active_scope": "mine",
             "projects": (),
             "project_page": SimpleNamespace(
-                previous_url="/projects/?cursor=signed-previous",
+                previous_url="/?cursor=signed-previous",
                 next_url=None,
             ),
-            "mine_url": "/projects/",
-            "shared_url": "/projects/?scope=shared",
+            "mine_url": "/",
+            "shared_url": "/?scope=shared",
         },
     )
     parser = DocumentParser()
@@ -290,7 +529,7 @@ def test_empty_cursor_page_keeps_safe_back_navigation() -> None:
     assert "No projects in these results" in parser.text
     assert "The project list changed." in parser.text
     assert any(
-        attributes.get("href") == "/projects/?cursor=signed-previous"
+        attributes.get("href") == "/?cursor=signed-previous"
         for attributes in parser.attributes_for("a")
     )
     assert "Previous projects" in " ".join(parser.text.split())
@@ -442,7 +681,6 @@ def test_invalid_user_search_is_escaped_and_announced_without_broad_results() ->
 
 def test_wide_data_tables_are_named_keyboard_scroll_regions() -> None:
     templates = (
-        TEMPLATE_ROOT / "home.html",
         TEMPLATE_ROOT / "admin" / "user_list.html",
         TEMPLATE_ROOT / "projects" / "list.html",
         TEMPLATE_ROOT / "projects" / "detail.html",

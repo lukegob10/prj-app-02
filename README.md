@@ -1,10 +1,11 @@
 # Agora
 
-Agora is an internal application for securely uploading, publishing, and sharing
-self-contained HTML dashboards with optional CSV attachments. This repository currently
+Agora is an internal application for securely uploading, publishing, and sharing versioned HTML
+dashboard packages. A package contains one HTML entry point plus optional same-revision data and
+presentation files. This repository currently
 implements the secure foundation, metadata/private-storage boundary, local SOEID authentication,
 and a runnable owner workspace for creating projects, uploading revisions, and previewing exact
-HTML/CSV dashboards. The preserved [`tickets`](./tickets/README.md) backlog remains the authority
+dashboard packages. The preserved [`tickets`](./tickets/README.md) backlog remains the authority
 for the complete publishing, sharing, and operations roadmap.
 
 ## Foundation decisions
@@ -23,7 +24,7 @@ for the complete publishing, sharing, and operations roadmap.
 The portal is trusted. Uploaded HTML is always hostile and must never be returned from a
 portal route, inserted into the portal DOM, placed in `srcdoc`, or converted to a same-origin
 `blob:`/`data:` document. The content service exposes only short-lived, database-authorized
-GET/HEAD routes for one exact revision and its CSV attachments; every other path returns 404.
+GET/HEAD routes for one exact revision and its supporting artifacts; every other path returns 404.
 
 Read the normative [product contract](./docs/product-contract.md),
 [architecture](./docs/architecture.md), and [threat model](./docs/threat-model.md) before
@@ -80,10 +81,17 @@ uv run python scripts/run_local.py
 
 Open `https://localhost:8443`. The single launcher starts the Uvicorn-backed portal there and the
 cookie-free isolated content service at `https://127.0.0.1:8444`; both automatically reload Python
-changes. In development, the portal reads templates without Django's production cache, so a normal
-browser refresh also loads current HTML and committed CSS. The certificate and private key live
-only under ignored `.local/tls/`; never copy them into source control or use them outside local
-development.
+changes. Pages opened from the local HTTPS portal also refresh themselves after Python, template,
+CSS, JavaScript, or image changes. This self-hosted refresh client and its polling endpoint are
+enabled only by the development launcher. The certificate and private key live only under ignored
+`.local/tls/`; never copy them into source control or use them outside local development.
+
+Keep the launcher terminal running while you iterate. On Windows, the combined launcher keeps each
+HTTPS listener bound while replacing its Python worker, so repeated edits do not stop the working
+host or require another launch command. Keep the real `https://localhost:8443` page open while
+iterating; do not open a template file directly in the browser. Each Windows listener is bound
+exclusively, so a stale process that still owns a port makes a second launcher fail visibly instead
+of silently serving a mixture of old and current application code.
 
 This certificate workflow is local-development-only. A deployed environment terminates HTTPS
 with an organization-issued certificate at its load balancer or reverse proxy and runs the Agora
@@ -113,7 +121,7 @@ uv run python scripts/run_content_https.py
 ```
 
 The content root intentionally returns 404. Only an iframe URL minted by an authorized portal
-preview or published-view shell can resolve HTML/CSV bytes, and the content composition has no
+preview or published-view shell can resolve one exact package, and the content composition has no
 session, login, mutation, administration, or template middleware.
 
 ## Checks
@@ -166,8 +174,8 @@ The private filesystem contract, durability assumptions, and backup boundary are
 
 ## Scope
 
-The current vertical slice includes Home, My Projects, Shared with Me, Create Project, Project
-Detail, owner-facing project access management by canonical SOEID, bounded HTML/CSV upload, and
+The current vertical slice includes the unified Projects workspace, My Projects, Shared with Me,
+Create Project, Project Detail, owner-facing project access management by canonical SOEID, bounded dashboard-package upload, and
 owner/published viewing through the isolated renderer. It does not yet include publish/unpublish
 controls, archive/delete, object storage, ECS topology, reverse-proxy SSO, or production hosting.
 Those remain explicit backlog work rather than hidden behavior. Production capacity for thousands

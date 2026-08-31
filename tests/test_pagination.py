@@ -8,8 +8,10 @@ from unittest.mock import MagicMock
 from uuid import UUID
 
 import pytest
+from django.core import signing
 from django.db.models import Model, Q, QuerySet
 
+from agora.persistence import pagination
 from agora.persistence.models import Dashboard, User
 from agora.persistence.pagination import (
     CursorColumn,
@@ -29,6 +31,59 @@ def _query_returning[ModelT: Model](
     ordered_source = queryset.filter.return_value if after_filter else queryset
     ordered_source.order_by.return_value.__getitem__.return_value = list(rows)
     return cast(QuerySet[ModelT], queryset), queryset
+
+
+def test_pagination_rejects_every_invalid_server_and_cursor_shape() -> None:
+    with pytest.raises(ValueError, match="public model field"):
+        CursorColumn("", CursorValueKind.TEXT)
+    with pytest.raises(ValueError, match="public model field"):
+        CursorColumn("_private", CursorValueKind.TEXT)
+    with pytest.raises(ValueError, match="public model field paths"):
+        CursorColumn("owner____soeid", CursorValueKind.TEXT)
+
+    queryset = User.objects.none()
+    with pytest.raises(ValueError, match="at least one"):
+        paginate_keyset(queryset, columns=(), namespace="users")
+    columns = (CursorColumn("soeid", CursorValueKind.TEXT),)
+    with pytest.raises(ValueError, match="between 1 and 100"):
+        paginate_keyset(queryset, columns=columns, namespace="users", page_size=0)
+    with pytest.raises(ValueError, match="namespace"):
+        paginate_keyset(queryset, columns=columns, namespace="")
+
+    salt = pagination._cursor_salt("users", "")
+    malformed_payloads = (
+        signing.dumps([], salt=salt),
+        signing.dumps({"v": 1, "d": "next", "wrong": []}, salt=salt),
+        signing.dumps({"v": 2, "d": "next", "p": ["A"]}, salt=salt),
+        signing.dumps({"v": 1, "d": "sideways", "p": ["A"]}, salt=salt),
+        signing.dumps({"v": 1, "d": "next", "p": "A"}, salt=salt),
+        signing.dumps({"v": 1, "d": "next", "p": []}, salt=salt),
+        signing.dumps({"v": 1, "d": "next", "p": [1]}, salt=salt),
+    )
+    with pytest.raises(InvalidCursor):
+        pagination._decode_cursor(
+            1,  # type: ignore[arg-type]
+            columns=columns,
+            namespace="users",
+            context="",
+            max_age=60,
+        )
+    for cursor in malformed_payloads:
+        with pytest.raises(InvalidCursor):
+            pagination._decode_cursor(
+                cursor,
+                columns=columns,
+                namespace="users",
+                context="",
+                max_age=60,
+            )
+
+    with pytest.raises(TypeError, match="encoded cursor"):
+        pagination._decode_value(1, CursorValueKind.UUID)
+    with pytest.raises(TypeError, match="unsupported"):
+        pagination._decode_value("value", "unsupported")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="boundary"):
+        pagination._validated_value(True, CursorValueKind.INTEGER)
 
 
 def test_user_search_accepts_only_a_canonicalizable_soeid_prefix() -> None:

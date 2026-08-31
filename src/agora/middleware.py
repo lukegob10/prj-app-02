@@ -54,7 +54,13 @@ class PortalSecurityHeadersMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         response = self.get_response(request)
-        return apply_portal_response_policy(response, content_origin=settings.AGORA_CONTENT_ORIGIN)
+        return apply_portal_response_policy(
+            response,
+            content_origin=settings.AGORA_CONTENT_ORIGIN,
+            # Trusted portal behavior is shipped only as same-origin static modules. Inline and
+            # third-party scripts remain blocked; hostile dashboard content uses a separate CSP.
+            allow_scripts=True,
+        )
 
 
 class ContentSecurityHeadersMiddleware:

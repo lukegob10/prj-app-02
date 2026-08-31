@@ -4,233 +4,31 @@
 {% block body_class %} portal-page--home{% endblock %}
 
 {% block content %}
-  {% if request.user.is_authenticated %}
-    {% url "project-create" as create_project_url %}
-    <div class="portal-home-dashboard">
-      <section class="portal-home-hero" aria-labelledby="home-heading">
-        <div class="portal-home-hero__copy">
-          <p class="portal-eyebrow">Welcome back, {{ request.user.soeid }}</p>
-          <h1 id="home-heading">Your projects, in one trusted place.</h1>
-          <p>Open a dashboard immediately, manage immutable revisions when needed, and return to work shared with your SOEID.</p>
-          <div class="portal-home-hero__actions">
-            <a class="portal-button portal-button--primary" href="{{ create_project_url }}">Create new project</a>
-            <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">Browse all projects</a>
-          </div>
-        </div>
-      </section>
-
-      <section class="portal-home-projects" aria-labelledby="return-heading">
-        <header class="portal-home-projects__header">
-          <p class="portal-eyebrow">Quick return</p>
-          <h2 id="return-heading">Return to a dashboard</h2>
-          <p>Open a favorite or pick up where you recently left off.</p>
-        </header>
-        <div class="portal-home-project-stack">
-          <section class="portal-home-project-group" aria-labelledby="favorites-heading">
-            <div class="portal-section__heading portal-section__heading--actions">
-              <div>
-                <p class="portal-eyebrow">Saved by you</p>
-                <h3 id="favorites-heading">Favorites</h3>
-              </div>
-              <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">Find dashboards</a>
-            </div>
-            {% if favorites %}
-              <div class="portal-table-wrap" role="region" aria-labelledby="favorites-caption" tabindex="0">
-                <table class="portal-table">
-                  <caption id="favorites-caption">Up to 10 dashboards you marked as favorites</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Dashboard</th>
-                      <th scope="col">Owner</th>
-                      <th scope="col"><span class="portal-visually-hidden">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for project in favorites|slice:":10" %}
-                      {% url "project-view" project.id as favorite_open_url %}
-                      <tr>
-                        <td><a class="portal-table__primary-link" href="{{ favorite_open_url }}">{{ project.name }}</a></td>
-                        <td>{{ project.owner.soeid }}</td>
-                        <td>
-                          <div class="portal-action-group">
-                            <a class="portal-button portal-button--quiet" href="{{ favorite_open_url }}">Open dashboard</a>
-                            {% if project.state == "published" and project.published_revision %}
-                              {% include "portal/discovery/_favorite_form.html" with project=project %}
-                            {% endif %}
-                          </div>
-                        </td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            {% else %}
-              {% include "portal/components/empty-state.html" with heading_id="favorites-empty" heading_level=4 title="No favorites yet" message="Use Add to favorites on a published dashboard to keep it here." %}
-            {% endif %}
-          </section>
-
-          <section class="portal-home-project-group" aria-labelledby="recently-viewed-heading">
-            <div class="portal-section__heading portal-section__heading--actions">
-              <div>
-                <p class="portal-eyebrow">Your activity</p>
-                <h3 id="recently-viewed-heading">Recently viewed</h3>
-              </div>
-              <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">Browse projects</a>
-            </div>
-            {% if recently_viewed %}
-              <div class="portal-table-wrap" role="region" aria-labelledby="recently-viewed-caption" tabindex="0">
-                <table class="portal-table">
-                  <caption id="recently-viewed-caption">Up to 10 dashboards you opened most recently</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Dashboard</th>
-                      <th scope="col">Owner</th>
-                      <th scope="col"><span class="portal-visually-hidden">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for project in recently_viewed|slice:":10" %}
-                      {% url "project-view" project.id as recent_open_url %}
-                      <tr>
-                        <td>
-                          <a class="portal-table__primary-link" href="{{ recent_open_url }}">{{ project.name }}</a>
-                          {% if project.has_new_publication %}<span class="portal-table__secondary">{% include "portal/components/status-badge.html" with label="New" tone="positive" %}</span>{% endif %}
-                        </td>
-                        <td>{{ project.owner.soeid }}</td>
-                        <td>
-                          <div class="portal-action-group">
-                            <a class="portal-button portal-button--quiet" href="{{ recent_open_url }}">Open dashboard</a>
-                            {% if project.state == "published" and project.published_revision %}
-                              {% include "portal/discovery/_favorite_form.html" with project=project %}
-                            {% endif %}
-                          </div>
-                        </td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            {% else %}
-              {% include "portal/components/empty-state.html" with heading_id="recently-viewed-empty" heading_level=4 title="No recently viewed dashboards" message="Published dashboards you open will appear here for a quick return." %}
-            {% endif %}
-          </section>
-        </div>
-      </section>
-
-      <section class="portal-home-projects" aria-labelledby="home-projects-heading">
-        <header class="portal-home-projects__header">
-          <p class="portal-eyebrow">Workspace</p>
-          <h2 id="home-projects-heading">Projects</h2>
-          <p>Return to dashboards you own or open published work shared with your SOEID.</p>
-        </header>
-        <div class="portal-home-project-stack">
-          <section class="portal-home-project-group" aria-labelledby="my-projects-heading">
-            <div class="portal-section__heading portal-section__heading--actions">
-              <div>
-                <p class="portal-eyebrow">Personal projects</p>
-                <h3 id="my-projects-heading">My projects</h3>
-              </div>
-              <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}">View all</a>
-            </div>
-            {% if recent_owned %}
-              <div class="portal-table-wrap" role="region" aria-labelledby="recent-projects-caption" tabindex="0">
-                <table class="portal-table">
-                  <caption id="recent-projects-caption">Your most recently updated projects</caption>
-                  <thead>
-                    <tr><th scope="col">Project</th><th scope="col">Status</th><th scope="col">Latest revision</th><th scope="col">Updated</th></tr>
-                  </thead>
-                  <tbody>
-                    {% for project in recent_owned %}
-                      {% if project.latest_revision %}
-                        {% url "project-preview" project.id project.latest_revision.id as project_open_url %}
-                      {% else %}
-                        {% url "project-detail" project.id as project_open_url %}
-                      {% endif %}
-                      <tr>
-                        <td>
-                          <a class="portal-table__primary-link" href="{{ project_open_url }}">{{ project.name }}</a>
-                        </td>
-                        <td>{% include "portal/components/status-badge.html" with label=project.get_state_display tone="info" %}</td>
-                        <td>{% if project.latest_revision %}Revision {{ project.latest_revision.number }}{% else %}No upload yet{% endif %}</td>
-                        <td>{{ project.updated_at|date:"M j, Y" }}</td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            {% else %}
-              {% include "portal/components/empty-state.html" with heading_id="my-projects-empty" heading_level=4 title="Create your first project" message="A project holds one dashboard and its immutable HTML/CSV revisions." action_url=create_project_url action_label="Create new project" action_variant="secondary" %}
-            {% endif %}
-          </section>
-
-          <section class="portal-home-project-group" aria-labelledby="shared-projects-heading">
-            <div class="portal-section__heading portal-section__heading--actions">
-              <div>
-                <p class="portal-eyebrow">Collaborative access</p>
-                <h3 id="shared-projects-heading">Shared with me</h3>
-              </div>
-              <a class="portal-button portal-button--quiet" href="{% url 'project-list' %}?scope=shared">View all</a>
-            </div>
-            {% if recent_shared %}
-              <div class="portal-card-grid">
-                {% for project in recent_shared %}
-                  {% url "project-view" project.id as project_open_url %}
-                  <article class="portal-card">
-                    <div class="portal-card__header">
-                      <div><p class="portal-card__eyebrow">Shared by {{ project.owner.soeid }}</p><h4><a class="portal-card__title-link" href="{{ project_open_url }}">{{ project.name }}</a></h4></div>
-                      {% include "portal/components/status-badge.html" with label="Published" tone="positive" %}
-                    </div>
-                    <div class="portal-card__actions"><a class="portal-button portal-button--secondary" href="{{ project_open_url }}">Open dashboard</a></div>
-                  </article>
-                {% endfor %}
-              </div>
-            {% else %}
-              {% include "portal/components/empty-state.html" with heading_id="shared-empty" heading_level=4 title="Nothing has been shared with you yet" message="Published projects shared with your SOEID will appear here automatically." %}
-            {% endif %}
-          </section>
-        </div>
-      </section>
-    </div>
-  {% else %}
-    {% url "login" as login_url %}
-    <div class="portal-public-home">
-      <section class="portal-public-hero" aria-labelledby="home-heading">
-        <div class="portal-public-hero__copy">
-          <p class="portal-eyebrow">Secure dashboard publishing</p>
-          <h1 id="home-heading">Turn self-contained dashboards into governed projects.</h1>
-          <p>Agora gives owners one place to upload, version, publish, and share HTML dashboards with optional CSV data.</p>
-          <div class="portal-public-hero__actions">
-            <a class="portal-button portal-button--primary" href="{{ login_url }}">Sign in to Agora</a>
-          </div>
-        </div>
-        <aside class="portal-public-hero__summary" aria-label="Agora safeguards">
-          <p class="portal-eyebrow">Built for control</p>
-          <h2>A safer path from upload to audience.</h2>
-          <ul class="portal-public-highlights">
-            <li><span aria-hidden="true">01</span><div><strong>Immutable revisions</strong><p>Every accepted upload remains a distinct point in history.</p></div></li>
-            <li><span aria-hidden="true">02</span><div><strong>Isolated rendering</strong><p>Dashboard code runs outside the trusted portal origin.</p></div></li>
-            <li><span aria-hidden="true">03</span><div><strong>Scoped access</strong><p>Owners decide which authenticated viewers receive a publication.</p></div></li>
-          </ul>
-        </aside>
-      </section>
-
-      <section class="portal-public-workflow" aria-labelledby="workflow-heading">
-        <div class="portal-public-workflow__heading">
-          <p class="portal-eyebrow">Workspace flow</p>
-          <h2 id="workflow-heading">From project to published dashboard</h2>
-          <p>A focused workflow keeps dashboard ownership, revision history, and audience access together.</p>
-        </div>
-        <div class="portal-card-grid portal-card-grid--three">
-          {% include "portal/components/status-card.html" with eyebrow="1" title="Create a project" heading_level=3 text="Name the dashboard and keep ownership tied to your authenticated SOEID." %}
-          {% include "portal/components/status-card.html" with eyebrow="2" title="Upload a revision" heading_level=3 text="Add one self-contained HTML file with any CSV attachments as an immutable revision." %}
-          {% include "portal/components/status-card.html" with eyebrow="3" title="Preview and share" heading_level=3 text="Validate content in the isolated renderer, then publish deliberately to approved viewers." %}
-        </div>
-      </section>
-
-      <section class="portal-boundary-note portal-public-boundary" aria-labelledby="boundary-heading">
-        <div class="portal-boundary-note__heading"><span class="portal-boundary-note__marker" aria-hidden="true">✓</span><div><p class="portal-eyebrow">Trust boundary</p><h2 id="boundary-heading">Dashboard code stays outside the portal</h2></div></div>
-        <p>User-created HTML is treated as hostile and is delivered only from the isolated content origin.</p>
-      </section>
-    </div>
-  {% endif %}
+  <div class="portal-public-home">
+    <section class="portal-public-hero" aria-labelledby="home-heading">
+      <div class="portal-public-hero__copy">
+        <p class="portal-eyebrow">Secure dashboard publishing</p>
+        <h1 id="home-heading">Share dashboards without giving up control.</h1>
+        <p>Upload, version, and publish flat HTML dashboard packages for approved viewers—all from one governed workspace.</p>
+      </div>
+      <aside class="portal-public-safeguards" aria-labelledby="safeguards-heading">
+        <p class="portal-eyebrow">Built-in safeguards</p>
+        <h2 id="safeguards-heading">Every release stays deliberate.</h2>
+        <ul class="portal-public-safeguards__list">
+          <li>
+            <span class="portal-public-safeguards__index" aria-hidden="true">01</span>
+            <div><strong>Versioned</strong><span>Every accepted upload is retained as an immutable revision.</span></div>
+          </li>
+          <li>
+            <span class="portal-public-safeguards__index" aria-hidden="true">02</span>
+            <div><strong>Isolated</strong><span>Dashboard code runs outside the trusted portal.</span></div>
+          </li>
+          <li>
+            <span class="portal-public-safeguards__index" aria-hidden="true">03</span>
+            <div><strong>Permissioned</strong><span>Only approved users can open published work.</span></div>
+          </li>
+        </ul>
+      </aside>
+    </section>
+  </div>
 {% endblock %}

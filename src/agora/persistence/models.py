@@ -25,6 +25,18 @@ from agora.persistence.names import (
 STORAGE_KEY_PATTERN = r"^v1/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
+# Keep the MIME contract in one place so model validation, persistence services, and the
+# database check constraint cannot silently drift apart.  IMAGE and FONT deliberately have
+# more than one valid subtype; callers must carry the authoritative subtype from upload
+# validation rather than having the persistence layer guess from the broad artifact kind.
+ARTIFACT_MEDIA_TYPES: dict[str, tuple[str, ...]] = {
+    "html": ("text/html",),
+    "csv": ("text/csv",),
+    "css": ("text/css",),
+    "img": ("image/png", "image/jpeg", "image/gif", "image/webp"),
+    "font": ("font/woff", "font/woff2"),
+}
+
 
 class ImmutableRecordError(ValidationError):
     """Raised when application code attempts to mutate retained history."""
@@ -853,11 +865,14 @@ class Revision(models.Model):
 
 
 class Artifact(models.Model):
-    """Immutable metadata for one privately stored HTML or CSV artifact."""
+    """Immutable metadata for one privately stored dashboard artifact."""
 
     class Kind(models.TextChoices):
         HTML = "html", "HTML"
         CSV = "csv", "CSV"
+        CSS = "css", "CSS"
+        IMAGE = "img", "Image"
+        FONT = "font", "Font"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     revision = models.ForeignKey(Revision, on_delete=models.PROTECT, related_name="artifacts")
@@ -873,13 +888,16 @@ class Artifact(models.Model):
         db_table = "TB_TA_AGORA_ARTIFACT"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
-                condition=models.Q(kind__in=["html", "csv"]),
+                condition=models.Q(kind__in=list(ARTIFACT_MEDIA_TYPES)),
                 name="agora_artifact_valid_kind",
             ),
             models.CheckConstraint(
                 condition=(
                     models.Q(kind="html", media_type="text/html")
                     | models.Q(kind="csv", media_type="text/csv")
+                    | models.Q(kind="css", media_type="text/css")
+                    | models.Q(kind="img", media_type__in=ARTIFACT_MEDIA_TYPES["img"])
+                    | models.Q(kind="font", media_type__in=ARTIFACT_MEDIA_TYPES["font"])
                 ),
                 name="agora_artifact_kind_media_type",
             ),
@@ -931,6 +949,11 @@ class Artifact(models.Model):
             raise ValidationError({"logical_name": str(error)}) from error
         if self.logical_name != normalized.display or self.name_key != normalized.comparison_key:
             raise ValidationError("logical name and comparison key must be canonical")
+        allowed_media_types = ARTIFACT_MEDIA_TYPES.get(self.kind)
+        if allowed_media_types is None or self.media_type not in allowed_media_types:
+            raise ValidationError(
+                {"media_type": "media type is not allowed for this artifact kind"}
+            )
         if self.revision_id is not None and self.revision.artifacts_locked:
             raise ValidationError("artifacts cannot be added to a complete revision")
 
@@ -1016,9 +1039,12 @@ class ViewerGrant(models.Model):
             raise ValidationError(
                 "revoked_at and revoked_by must either both be set or both be empty"
             )
-        if not self._state.adding and self.revoked_by_id is not None:
-            original = type(self).objects.only("revoked_at").get(pk=self.pk)
-            if original.revoked_at is None and self.revoked_by_id != self.dashboard.owner_id:
+        if self.revoked_by_id is not None:
+            is_new_revocation = self._state.adding
+            if not self._state.adding:
+                original = type(self).objects.only("revoked_at").get(pk=self.pk)
+                is_new_revocation = original.revoked_at is None
+            if is_new_revocation and self.revoked_by_id != self.dashboard.owner_id:
                 raise ValidationError({"revoked_by": "only the dashboard owner can revoke a grant"})
 
 

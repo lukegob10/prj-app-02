@@ -11,6 +11,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNNERS = ("run_https.py", "run_content_https.py")
 
 
+def _stop_process(process: subprocess.Popen[bytes]) -> None:
+    """Stop one launcher and its reload worker without leaking a child process."""
+
+    if process.poll() is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        process.terminate()
+
+
 def main() -> None:
     """Run portal and isolated content processes as one local developer command."""
     processes: list[subprocess.Popen[bytes]] = []
@@ -30,8 +46,7 @@ def main() -> None:
         pass
     finally:
         for process in processes:
-            if process.poll() is None:
-                process.terminate()
+            _stop_process(process)
         for process in processes:
             try:
                 process.wait(timeout=5)

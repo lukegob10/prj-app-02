@@ -201,7 +201,7 @@ def test_historical_migrations_are_content_unchanged() -> None:
 
 def test_enhancement_migrations_form_one_linear_forward_chain() -> None:
     previous = "0011_project_viewer_epochs"
-    for number in (12, 13, 14):
+    for number in (12, 13, 14, 15, 16):
         migration = _migration(number)
         persistence_dependencies = [
             dependency
@@ -210,6 +210,28 @@ def test_enhancement_migrations_form_one_linear_forward_chain() -> None:
         ]
         assert persistence_dependencies == [("persistence", previous)]
         previous = migration.__name__.rsplit(".", maxsplit=1)[-1]
+
+
+def test_oracle_uuid_trigger_variables_follow_their_varchar_columns() -> None:
+    migration = _migration(15)
+    forward_sql = _migration_sql(migration)
+
+    assert "RAW(16)" not in forward_sql
+    for column in (
+        "TB_TA_AGORA_DASHBOARD.OWNER_ID%TYPE",
+        "TB_TA_AGORA_DASH_TRANSFER.DASHBOARD_ID%TYPE",
+        "TB_TA_AGORA_RENDER_AUTHORIZATION.DASHBOARD_ID%TYPE",
+        "TB_TA_AGORA_AUTHORIZED_OPEN.SOURCE_AUTHORIZATION_ID%TYPE",
+    ):
+        assert column in forward_sql
+
+
+def test_grant_trigger_rejects_an_initial_non_owner_revoker() -> None:
+    forward_sql = _migration_sql(_migration(16))
+
+    assert ":NEW.REVOKED_BY_ID IS NOT NULL" in forward_sql
+    assert ":NEW.REVOKED_BY_ID <> CURRENT_OWNER" in forward_sql
+    assert "GRANT REVOKER MUST BE THE CURRENT OWNER" in forward_sql
 
 
 def test_each_enhancement_schema_is_introduced_in_its_approved_migration() -> None:
@@ -362,7 +384,7 @@ def test_access_request_queue_interface_is_dashboard_scoped_and_index_streamable
 
 @pytest.mark.django_db(transaction=True)
 def test_tag_slots_and_keys_enforce_the_effective_five_tag_ceiling() -> None:
-    user = _model("User").objects.create(soeid="SCHEMA.TAG.OWNER")
+    user = _model("User").objects.create_user("SCHEMA.TAG.OWNER")
     dashboard = _model("Dashboard").objects.create(owner=user, name="Tags")
     tag = _model("DashboardTag")
     tag.objects.bulk_create(
@@ -385,8 +407,8 @@ def test_core_singleton_rows_and_access_lifecycle_are_database_enforced() -> Non
     favorite = _model("DashboardFavorite")
     viewer_state = _model("DashboardViewerState")
     access_request = _model("AccessRequest")
-    owner = user_model.objects.create(soeid="SCHEMA.CORE.OWNER")
-    requester = user_model.objects.create(soeid="SCHEMA.CORE.REQUESTER")
+    owner = user_model.objects.create_user("SCHEMA.CORE.OWNER")
+    requester = user_model.objects.create_user("SCHEMA.CORE.REQUESTER")
     dashboard = dashboard_model.objects.create(owner=owner, name="Core")
     revision = _model("Revision").objects.create(
         dashboard=dashboard,
@@ -427,7 +449,7 @@ def test_core_singleton_rows_and_access_lifecycle_are_database_enforced() -> Non
         viewer_state.objects.filter(user=requester, dashboard=dashboard).update(
             seen_publication_version=0
         )
-    unseen_user = user_model.objects.create(soeid="SCHEMA.CORE.UNSEEN")
+    unseen_user = user_model.objects.create_user("SCHEMA.CORE.UNSEEN")
     with pytest.raises(DatabaseError), transaction.atomic():
         viewer_state.objects.bulk_create(
             [
@@ -445,7 +467,7 @@ def test_core_singleton_rows_and_access_lifecycle_are_database_enforced() -> Non
         access_request.objects.bulk_create(
             [access_request(dashboard=dashboard, requester=requester)]
         )
-    with pytest.raises(IntegrityError), transaction.atomic():
+    with pytest.raises(DatabaseError), transaction.atomic():
         access_request.objects.bulk_create(
             [
                 access_request(
@@ -843,7 +865,7 @@ def test_new_oracle_objects_are_installed_exactly_and_compile_cleanly() -> None:
 
 @pytest.mark.django_db(transaction=True)
 def test_freshness_derivation_cannot_be_corrupted_by_bulk_sql() -> None:
-    user = _model("User").objects.create(soeid="SCHEMA.FRESH.OWNER")
+    user = _model("User").objects.create_user("SCHEMA.FRESH.OWNER")
     dashboard_model = _model("Dashboard")
     dashboard = dashboard_model.objects.create(owner=user, name="Freshness")
     confirmed_at = timezone.now().replace(microsecond=0)

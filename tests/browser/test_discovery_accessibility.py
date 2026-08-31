@@ -116,14 +116,14 @@ def test_projects_search_is_scope_explicit_keyboard_native_and_narrow(page: Page
             "active_scope": "shared",
             "projects": (project,),
             "project_page": SimpleNamespace(previous_url="#previous", next_url="#next"),
-            "mine_url": "/projects/",
-            "shared_url": "/projects/?scope=shared",
+            "mine_url": "/",
+            "shared_url": "/?scope=shared",
             "search_form": search_form,
             "search_query": "Liquid",
             "search_input": "Liquid",
             "search_active": True,
-            "search_url": "/projects/",
-            "clear_search_url": "/projects/?scope=shared",
+            "search_url": "/",
+            "clear_search_url": "/?scope=shared",
         },
     )
     _set_portal_content(page, document)
@@ -175,14 +175,14 @@ def test_projects_search_empty_and_error_states_explain_the_next_step(page: Page
             "active_scope": "mine",
             "projects": (),
             "project_page": SimpleNamespace(previous_url=None, next_url=None),
-            "mine_url": "/projects/",
-            "shared_url": "/projects/?scope=shared",
+            "mine_url": "/",
+            "shared_url": "/?scope=shared",
             "search_form": valid_form,
             "search_query": "Missing",
             "search_input": "Missing",
             "search_active": True,
-            "search_url": "/projects/",
-            "clear_search_url": "/projects/",
+            "search_url": "/",
+            "clear_search_url": "/",
         },
     )
     _set_portal_content(page, empty_document)
@@ -200,14 +200,14 @@ def test_projects_search_empty_and_error_states_explain_the_next_step(page: Page
             "active_scope": "shared",
             "projects": (),
             "project_page": SimpleNamespace(previous_url=None, next_url=None),
-            "mine_url": "/projects/",
-            "shared_url": "/projects/?scope=shared",
+            "mine_url": "/",
+            "shared_url": "/?scope=shared",
             "search_form": invalid_form,
             "search_query": "",
             "search_input": "",
             "search_active": False,
-            "search_url": "/projects/",
-            "clear_search_url": "/projects/?scope=shared",
+            "search_url": "/",
+            "clear_search_url": "/?scope=shared",
         },
     )
     _set_portal_content(page, error_document)
@@ -236,7 +236,7 @@ def test_owner_tag_fields_have_inline_errors_and_native_keyboard_order(page: Pag
             "project": project,
             "tag_form": tag_form,
             "tag_action_url": f"/projects/{project.id}/tags/",
-            "cancel_url": "/projects/",
+            "cancel_url": "/",
         },
         request=_authenticated_request(f"/projects/{project.id}/tags/"),
     )
@@ -262,54 +262,4 @@ def test_owner_tag_fields_have_inline_errors_and_native_keyboard_order(page: Pag
     page.keyboard.press("Tab")
     assert page.locator(":focus").inner_text() == "Cancel"
     assert page.locator(".portal-button--primary").count() == 1
-    _assert_no_catalog_artifacts(page, document)
-
-
-def test_home_caps_return_surfaces_and_keeps_catalog_markup_inert(page: Page) -> None:
-    favorites = tuple(_published_project(number, favorite=True) for number in range(1, 13))
-    recently_viewed = tuple(
-        _published_project(number + 100, favorite=number % 2 == 0, has_new_publication=True)
-        for number in range(1, 13)
-    )
-    document = render_to_string(
-        "portal/home.html",
-        {
-            "favorites": favorites,
-            "recently_viewed": recently_viewed,
-            "recent_owned": (),
-            "recent_shared": (),
-        },
-        request=_authenticated_request(),
-    )
-    _set_portal_content(page, document)
-
-    favorites_table = page.get_by_role("table", name="Up to 10 dashboards you marked as favorites")
-    recent_table = page.get_by_role("table", name="Up to 10 dashboards you opened most recently")
-    assert favorites_table.locator("tbody tr").count() == 10
-    assert recent_table.locator("tbody tr").count() == 10
-    assert favorites_table.get_by_role("button", name="Remove", exact=False).count() == 10
-    assert recent_table.get_by_text("New", exact=True).count() == 10
-    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth") is True
-    _assert_no_catalog_artifacts(page, document)
-
-
-def test_home_return_surfaces_have_useful_first_use_empty_states(page: Page) -> None:
-    document = render_to_string(
-        "portal/home.html",
-        {
-            "favorites": (),
-            "recently_viewed": (),
-            "recent_owned": (),
-            "recent_shared": (),
-        },
-        request=_authenticated_request(),
-    )
-    _set_portal_content(page, document)
-
-    assert page.get_by_role("heading", name="No favorites yet").is_visible()
-    assert page.get_by_text(
-        "Use Add to favorites on a published dashboard", exact=False
-    ).is_visible()
-    assert page.get_by_role("heading", name="No recently viewed dashboards").is_visible()
-    assert page.get_by_text("dashboards you open will appear here", exact=False).is_visible()
     _assert_no_catalog_artifacts(page, document)

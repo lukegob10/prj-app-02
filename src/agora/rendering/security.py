@@ -13,15 +13,16 @@ _PERMISSIONS_POLICY = (
 )
 
 
-def portal_content_security_policy(content_origin: str) -> str:
+def portal_content_security_policy(content_origin: str, *, allow_scripts: bool = False) -> str:
     """Return the exact policy for trusted portal documents."""
     origin = _validated_origin(content_origin)
+    script_source = "'self'" if allow_scripts else "'none'"
     return _serialize_policy(
         (
             "default-src 'self'",
             "base-uri 'none'",
             "object-src 'none'",
-            "script-src 'none'",
+            f"script-src {script_source}",
             "style-src 'self'",
             "img-src 'self'",
             "connect-src 'self'",
@@ -41,9 +42,9 @@ def content_security_policy(portal_origin: str) -> str:
             "base-uri 'none'",
             "object-src 'none'",
             "script-src 'unsafe-inline'",
-            "style-src 'unsafe-inline'",
-            "img-src data: blob:",
-            "font-src data:",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob:",
+            "font-src 'self' data:",
             "media-src data: blob:",
             "connect-src 'self'",
             "frame-src 'none'",
@@ -56,11 +57,18 @@ def content_security_policy(portal_origin: str) -> str:
     )
 
 
-def portal_response_headers(content_origin: str) -> dict[str, str]:
+def portal_response_headers(
+    content_origin: str,
+    *,
+    allow_scripts: bool = False,
+) -> dict[str, str]:
     """Return headers that protect the trusted portal and its frame boundary."""
     return {
         **_restrictive_headers(cache_control="no-store"),
-        "Content-Security-Policy": portal_content_security_policy(content_origin),
+        "Content-Security-Policy": portal_content_security_policy(
+            content_origin,
+            allow_scripts=allow_scripts,
+        ),
         "X-Frame-Options": "DENY",
     }
 
@@ -73,9 +81,17 @@ def content_response_headers(portal_origin: str) -> dict[str, str]:
     }
 
 
-def apply_portal_response_policy(response: HttpResponse, *, content_origin: str) -> HttpResponse:
+def apply_portal_response_policy(
+    response: HttpResponse,
+    *,
+    content_origin: str,
+    allow_scripts: bool = False,
+) -> HttpResponse:
     """Enforce the portal policy after the view has produced its response."""
-    for name, value in portal_response_headers(content_origin).items():
+    for name, value in portal_response_headers(
+        content_origin,
+        allow_scripts=allow_scripts,
+    ).items():
         response.headers[name] = value
     return response
 

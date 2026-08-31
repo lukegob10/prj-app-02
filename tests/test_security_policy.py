@@ -28,9 +28,9 @@ def test_content_policy_is_the_approved_default_deny_baseline() -> None:
             "base-uri 'none'",
             "object-src 'none'",
             "script-src 'unsafe-inline'",
-            "style-src 'unsafe-inline'",
-            "img-src data: blob:",
-            "font-src data:",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob:",
+            "font-src 'self' data:",
             "media-src data: blob:",
             "connect-src 'self'",
             "frame-src 'none'",
@@ -72,6 +72,14 @@ def test_portal_policy_frames_only_the_exact_content_origin() -> None:
         )
     )
     assert portal_response_headers(CONTENT_ORIGIN)["X-Frame-Options"] == "DENY"
+
+
+def test_development_portal_policy_allows_only_self_hosted_scripts() -> None:
+    policy = portal_content_security_policy(CONTENT_ORIGIN, allow_scripts=True)
+
+    assert "script-src 'self'" in policy
+    assert "'unsafe-inline'" not in policy
+    assert "'unsafe-eval'" not in policy
 
 
 def test_response_application_overwrites_weak_headers_and_removes_content_cookies() -> None:
@@ -125,7 +133,8 @@ def test_configured_middlewares_overwrite_view_supplied_policies() -> None:
     content_response = ContentSecurityHeadersMiddleware(weak_response)(request)
 
     assert portal_response["Content-Security-Policy"] == portal_content_security_policy(
-        settings.AGORA_CONTENT_ORIGIN
+        settings.AGORA_CONTENT_ORIGIN,
+        allow_scripts=True,
     )
     assert portal_response["X-Frame-Options"] == "DENY"
     assert content_response["Content-Security-Policy"] == content_security_policy(

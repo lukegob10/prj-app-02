@@ -21,6 +21,8 @@ from agora.persistence.access import grant_project_viewer, revoke_project_viewer
 from agora.persistence.models import (
     AuditEvent,
     Dashboard,
+    DashboardFavorite,
+    DashboardViewerState,
     ImmutableRecordError,
     RenderAuthorization,
     Revision,
@@ -49,6 +51,15 @@ VALID_HTML = (
     b'<script>fetch("data.csv")</script></body></html>'
 )
 VALID_CSV = b"name,value\nalpha,1\n"
+PACKAGE_HTML = (
+    b'<!doctype html><html><head><link rel="stylesheet" href="theme.css"></head>'
+    b'<body><img src="logo.png"><script>fetch("data.csv")</script></body></html>'
+)
+PACKAGE_CSS = (
+    b'@font-face{font-family:Dashboard;src:url("screen.woff2")}body{font-family:Dashboard}'
+)
+PACKAGE_PNG = b"\x89PNG\r\n\x1a\npackage-image"
+PACKAGE_WOFF2 = b"wOF2package-font"
 
 
 def _user(soeid: str) -> User:
@@ -67,6 +78,23 @@ def _revision(owner: User, root: Path, *, name: str = "Dashboard") -> tuple[Dash
         storage=FilesystemArtifactStorage(root),
     )
     dashboard.refresh_from_db()
+    return dashboard, revision
+
+
+def _package_revision(owner: User, root: Path) -> tuple[Dashboard, Revision]:
+    dashboard = Dashboard.objects.create(owner=owner, name="Package dashboard")
+    revision = create_upload_revision(
+        dashboard_id=dashboard.id,
+        created_by_id=owner.id,
+        parts=[
+            UploadPart("dashboard.html", [PACKAGE_HTML], "text/html"),
+            UploadPart("data.csv", [VALID_CSV], "text/csv"),
+            UploadPart("theme.css", [PACKAGE_CSS], "text/css"),
+            UploadPart("logo.png", [PACKAGE_PNG], "image/png"),
+            UploadPart("screen.woff2", [PACKAGE_WOFF2], "font/woff2"),
+        ],
+        storage=FilesystemArtifactStorage(root),
+    )
     return dashboard, revision
 
 
@@ -124,6 +152,7 @@ def test_owner_preview_shell_issues_hashed_scoped_authorization(tmp_path: Path) 
     assert b"portal-brand__mark" not in response.content
     assert b'aria-label="Dashboard details"' in response.content
     assert b"Open project details" in response.content
+    assert b"Add to favorites" not in response.content
     assert b"Manage" not in response.content
     assert response.content.count(b"<h1") == 1
     assert b"Private owner preview" in response.content
@@ -185,7 +214,8 @@ def test_content_entry_point_delivers_only_scoped_html_and_csv(
             head = client.head(f"/render/preview/{credential.token}/data.csv")
             missing = client.get(f"/render/preview/{credential.token}/missing.csv")
             wrong_audience = client.get(f"/render/viewer/{credential.token}/")
-            altered = client.get(f"/render/preview/{credential.token[:-1]}A/")
+            replacement = "A" if credential.token[-1] != "A" else "B"
+            altered = client.get(f"/render/preview/{credential.token[:-1]}{replacement}/")
             rejected_method = client.post(f"/render/preview/{credential.token}/")
 
     assert html.status_code == 200
@@ -213,6 +243,49 @@ def test_content_entry_point_delivers_only_scoped_html_and_csv(
     assert "X-Frame-Options" not in html.headers
     assert credential.token not in caplog.text
     assert "/render/<redacted>/" in caplog.text
+
+
+def test_content_delivery_serves_authorized_same_revision_package_assets(tmp_path: Path) -> None:
+    owner = _user("CONTENT.PACKAGE")
+    artifact_root = tmp_path / "artifacts"
+    dashboard, revision = _package_revision(owner, artifact_root)
+    credential = issue_owner_preview(
+        dashboard_id=dashboard.id,
+        revision_id=revision.id,
+        viewer_id=owner.id,
+    )
+    middleware = ["agora.middleware.ContentSecurityHeadersMiddleware"]
+
+    with override_settings(
+        ROOT_URLCONF="agora.urls.content",
+        MIDDLEWARE=middleware,
+        AGORA_ARTIFACT_ROOT=artifact_root,
+        AGORA_PORTAL_ORIGIN=PORTAL_ORIGIN,
+        AGORA_CONTENT_ORIGIN=CONTENT_ORIGIN,
+    ):
+        client = Client()
+        responses = {
+            "theme.css": client.get(
+                f"/render/preview/{credential.token}/theme.css", HTTP_ORIGIN="null"
+            ),
+            "logo.png": client.get(
+                f"/render/preview/{credential.token}/logo.png", HTTP_ORIGIN="null"
+            ),
+            "screen.woff2": client.get(
+                f"/render/preview/{credential.token}/screen.woff2", HTTP_ORIGIN="null"
+            ),
+        }
+
+    assert responses["theme.css"]["Content-Type"] == "text/css; charset=utf-8"
+    assert _body(responses["theme.css"]) == PACKAGE_CSS
+    assert responses["logo.png"]["Content-Type"] == "image/png"
+    assert _body(responses["logo.png"]) == PACKAGE_PNG
+    assert responses["screen.woff2"]["Content-Type"] == "font/woff2"
+    assert _body(responses["screen.woff2"]) == PACKAGE_WOFF2
+    for response in responses.values():
+        assert response.status_code == 200
+        assert response["Access-Control-Allow-Origin"] == "null"
+        assert "Origin" in response["Vary"]
 
 
 def test_content_delivery_fails_closed_for_bad_names_and_missing_storage(tmp_path: Path) -> None:
@@ -470,7 +543,13 @@ def test_render_token_issuance_does_not_lock_read_only_policy_rows(tmp_path: Pat
     locking_queries = [
         query["sql"] for query in queries.captured_queries if "FOR UPDATE" in query["sql"].upper()
     ]
-    assert locking_queries == []
+    assert len(locking_queries) == 2
+    assert RenderAuthorization._meta.db_table in locking_queries[0]
+    assert DashboardViewerState._meta.db_table in locking_queries[1]
+    for query in locking_queries:
+        lock_clause = query.upper().split("FOR UPDATE", maxsplit=1)[1]
+        for policy_model in (Dashboard, User, Revision, ViewerGrant):
+            assert policy_model._meta.db_table not in lock_clause
 
     with CaptureQueriesContext(connection) as resolver_queries:
         resolved = resolve_render_authorization(
@@ -499,6 +578,8 @@ def test_stable_shared_view_shell_and_generic_denials(tmp_path: Path) -> None:
     assert owner_response.status_code == 200
     assert b"Published dashboard" in viewer_response.content
     assert b"User-created content" in viewer_response.content
+    assert b"Add to favorites" in viewer_response.content
+    assert b'aria-pressed="false"' in viewer_response.content
     assert b'aria-label="Dashboard details"' in viewer_response.content
     assert b"View project information" in viewer_response.content
     assert b"Open project details" in owner_response.content
@@ -506,6 +587,12 @@ def test_stable_shared_view_shell_and_generic_denials(tmp_path: Path) -> None:
     assert b"/render/viewer/" in viewer_response.content
     assert outsider_response.status_code == 404
     assert dashboard.name.encode() not in outsider_response.content
+
+    DashboardFavorite.objects.create(user=viewer, dashboard=dashboard)
+    with override_settings(AGORA_CONTENT_ORIGIN=CONTENT_ORIGIN):
+        favorite_response = _login(viewer).get(url)
+    assert b"Remove favorite" in favorite_response.content
+    assert b'aria-pressed="true"' in favorite_response.content
 
 
 def test_authorization_records_are_scoped_immutable_tombstones(tmp_path: Path) -> None:

@@ -7,6 +7,7 @@ artifact bytes, authorization, or render credentials.
 from __future__ import annotations
 
 import json
+from base64 import b64decode
 from collections.abc import Iterator
 from dataclasses import dataclass
 from html import escape
@@ -25,6 +26,9 @@ from agora.rendering.security import (
 PORTAL_HOST = "portal.agora.test"
 CONTENT_HOST = "content.agorausercontent.test"
 ATTACKER_HOST = "attacker.agora-evil.test"
+_ONE_PIXEL_PNG = b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +165,8 @@ class FixtureServer:
             body = self._portal_page((("hostile-b", "/fixture/storage-b"),))
         elif path == "/fixture/csv":
             body = self._portal_page((("csv-content", "/fixture/csv"),))
+        elif path == "/fixture/package":
+            body = self._portal_page((("package-content", "/fixture/package"),))
         else:
             body = self._portal_page((("hostile-content", "/fixture/hostile"),))
         response = HttpResponse(body, content_type="text/html; charset=utf-8")
@@ -170,6 +176,7 @@ class FixtureServer:
     def _content_response(self, path: str, *, origin: str | None) -> HttpResponse:
         status = 200
         content_type = "text/html; charset=utf-8"
+        body: str | bytes
         if path == "/fixture/hostile":
             body = _hostile_fixture(self.attacker_origin)
         elif path == "/fixture/storage-a":
@@ -178,15 +185,26 @@ class FixtureServer:
             body = _storage_fixture(self.attacker_origin, role="b")
         elif path == "/fixture/csv":
             body = _csv_fixture()
+        elif path == "/fixture/package":
+            body = _package_fixture()
         elif path == "/fixture/data.csv":
             body = "name,value\nalpha,1\n"
             content_type = "text/csv; charset=utf-8"
+        elif path == "/fixture/package.css":
+            body = "body { color: rgb(17, 34, 51); }"
+            content_type = "text/css; charset=utf-8"
+        elif path == "/fixture/package.png":
+            body = _ONE_PIXEL_PNG
+            content_type = "image/png"
         else:
             status = 404
             body = "<!doctype html><title>Unknown fixture</title>"
 
         response = HttpResponse(body, status=status, content_type=content_type)
-        if path == "/fixture/data.csv" and origin == "null":
+        if (
+            path in {"/fixture/data.csv", "/fixture/package.css", "/fixture/package.png"}
+            and origin == "null"
+        ):
             response.headers["Access-Control-Allow-Origin"] = "null"
             response.headers["Vary"] = "Origin"
         response.set_cookie("content_probe", "must-be-removed")
@@ -537,6 +555,33 @@ def _csv_fixture() -> str:
           document.body.dataset.csv = 'blocked';
           document.body.dataset.ready = 'true';
         });
+    </script>
+  </body>
+</html>
+"""
+
+
+def _package_fixture() -> str:
+    return """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Package fixture</title>
+    <link rel="stylesheet" href="package.css">
+  </head>
+  <body data-ready="false" data-css="pending" data-image="pending">
+    <img id="package-image" src="package.png" alt="">
+    <script>
+      window.addEventListener('load', () => {
+        const image = document.querySelector('#package-image');
+        document.body.dataset.css = getComputedStyle(document.body).color === 'rgb(17, 34, 51)'
+          ? 'loaded'
+          : 'blocked';
+        document.body.dataset.image = image.complete && image.naturalWidth === 1
+          ? 'loaded'
+          : 'blocked';
+        document.body.dataset.ready = 'true';
+      });
     </script>
   </body>
 </html>

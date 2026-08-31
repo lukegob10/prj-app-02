@@ -2,12 +2,14 @@
 
 from django.urls import include, path
 
+from agora.portal.development import development_reload_version
 from agora.portal.views import (
     login_view,
     logout_view,
     project_create,
     project_detail,
     project_preview,
+    project_rename,
     project_upload,
     user_create,
     user_disable,
@@ -17,12 +19,14 @@ from agora.portal.views import (
 )
 
 urlpatterns = [
+    path("__dev__/reload/", development_reload_version, name="development-reload-version"),
     path("", include("agora.urls.discovery")),
     path("login/", login_view, name="login"),
     path("logout/", logout_view, name="logout"),
     path("projects/new/", project_create, name="project-create"),
     path("", include("agora.urls.stewardship")),
     path("projects/<uuid:project_id>/", project_detail, name="project-detail"),
+    path("projects/<uuid:project_id>/rename/", project_rename, name="project-rename"),
     path("projects/<uuid:project_id>/upload/", project_upload, name="project-upload"),
     path(
         "projects/<uuid:project_id>/revisions/<uuid:revision_id>/preview/",

@@ -96,7 +96,7 @@
                       <a class="portal-button portal-button--quiet" href="{{ project_tags_url }}">Manage tags</a>
                     {% endif %}
                     {% if project.state == "published" and project.published_revision %}
-                      {% include "portal/discovery/_favorite_form.html" with project=project %}
+                      {% include "portal/discovery/_favorite_form.html" with project=project favorite_active=project.is_favorite %}
                     {% endif %}
                   </div>
                 </td>
@@ -114,7 +114,7 @@
     {% elif active_scope == "shared" %}
       {% include "portal/components/empty-state.html" with heading_id="shared-projects-empty" title="No shared projects" message="Only published projects with active access for your SOEID appear here." %}
     {% else %}
-      {% include "portal/components/empty-state.html" with heading_id="owned-projects-empty" title="Create your first project" message="Start with project details, then upload a self-contained dashboard revision." action_url=create_project_url action_label="Create new project" action_variant="secondary" %}
+      {% include "portal/components/empty-state.html" with heading_id="owned-projects-empty" title="Create your first project" message="Start with project details, then upload a flat dashboard package revision." action_url=create_project_url action_label="Create new project" action_variant="secondary" %}
     {% endif %}
     {% include "portal/components/cursor-pagination.html" with page=project_page pagination_label="Project results" item_label="projects" %}
   </section>

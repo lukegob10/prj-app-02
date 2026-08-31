@@ -18,10 +18,10 @@ schema and domain behavior only. It does not claim that the later end-user scree
 | **User** | An administrator-provisioned application identity with an immutable internal identifier and exactly one unique canonical SOEID. A User is active or disabled. Self-registration and user hard deletion are not MVP features. A disabled User cannot authenticate or authorize. |
 | **SOEID** | The sole human-facing identity key. It is normalized once at the trusted identity boundary, stored canonically, and never selected from a browser field or untrusted header after authentication. The conservative default is trim surrounding ASCII whitespace, convert to invariant uppercase, then validate `^[A-Z0-9][A-Z0-9._-]{0,63}$`; firm-specific grammar changes require an explicit contract decision. |
 | **Dashboard** | The top-level securable resource. It has an opaque stable identifier, exactly one current owner, mutable safe metadata, zero or more Viewer Grants, ordered immutable Revisions, a latest-revision pointer, and an optional published-revision pointer. Ownership may change only through the explicit transfer service; historical actor attribution never changes with it. |
-| **Revision** | One atomically committed, immutable version of a Dashboard containing exactly one HTML Artifact and zero or more CSV Attachments. A failed or staged upload is not a Revision. A Revision is never edited or independently deleted in the MVP. |
-| **HTML Artifact** | The exact validated bytes of a Revision's sole HTML file. Self-contained means executable presentation dependencies are inline; only documented same-Revision CSV URLs may be runtime data dependencies. It is always hostile active content. |
-| **CSV Attachment** | An immutable, validated whole-file artifact belonging to one Revision. Its logical filename is unique after platform-independent normalization. A filename is never a storage path or authorization boundary. |
-| **Viewer Grant** | One retained Dashboard-to-User grant epoch, created or revoked by the current owner at the time of that action using canonical SOEID. At most one epoch for a `(Dashboard, User)` pair is unrevoked at a time; revocation closes that row permanently and a later regrant creates a new retained epoch. Its recorded creator and revoker remain immutable even if ownership later changes. An active epoch grants read-only access to the Revision currently published for that Dashboard, including every attached CSV. It grants no draft, preview, management, or arbitrary-Revision access. Owner access is implicit and is not a self-grant. |
+| **Revision** | One atomically committed, immutable version of a Dashboard containing exactly one HTML Artifact and zero or more Supporting Artifacts. A failed or staged upload is not a Revision. A Revision is never edited or independently deleted in the MVP. |
+| **HTML Artifact** | The exact validated bytes of a Revision's sole HTML entry point. It may use inline JavaScript and styles and may refer only to declared same-Revision Supporting Artifacts. Supported inline `data:` resources and runtime-created `blob:` URLs remain embedded content rather than Supporting Artifact references. It is always hostile active content. |
+| **Supporting Artifact** | An immutable, validated whole-file CSV, CSS, image, or web-font artifact belonging to one Revision. The initial package layout is flat: every logical filename is unique after platform-independent normalization and cannot contain a path separator. Separate JavaScript files are not supported. A logical filename is never a storage path or authorization boundary. |
+| **Viewer Grant** | One retained Dashboard-to-User grant epoch, created or revoked by the current owner at the time of that action using canonical SOEID. At most one epoch for a `(Dashboard, User)` pair is unrevoked at a time; revocation closes that row permanently and a later regrant creates a new retained epoch. Its recorded creator and revoker remain immutable even if ownership later changes. An active epoch grants read-only access to the Revision currently published for that Dashboard, including every Supporting Artifact. It grants no draft, preview, management, or arbitrary-Revision access. Owner access is implicit and is not a self-grant. |
 | **Dashboard Tag** | One owner-managed plain-text label attached to a Dashboard. The visible label has an application-produced normalized key used for equality and lookup. A Dashboard may have at most five Tags and only one stored Tag per normalized key; attempting a duplicate produces a typed plain-language validation error. A Tag never grants access or creates firmwide discovery. |
 | **Favorite** | A User's personal shortcut to one Dashboard. At most one Favorite exists per `(User, Dashboard)`. It never grants access, preserves no access after revocation, and must be intersected with current Dashboard authorization before it is returned. |
 | **Dashboard Viewer State** | The compact, single-row `(User, Dashboard)` state used for Recently viewed and the New indicator. It records the most recent successful Authorized Open and the highest Publication Version that User has successfully opened; it is not a raw browsing history. |
@@ -76,7 +76,7 @@ preference rows as a referential cleanup without changing retained security or a
   to see the Dashboard. Favorites are ordered through a bounded, indexed recent read; they are
   not evidence that access still exists.
 - Recently viewed uses `DashboardViewerState.last_viewed_at`, never a raw-event scan. Only a
-  successful Authorized Open advances it. A list view, failed open, owner preview, HTML/CSV
+  successful Authorized Open advances it. A list view, failed open, owner preview, artifact
   request, refresh of an existing content authorization, or analytics aggregation does not.
 - A currently visible Published Dashboard is New to a User when no Dashboard Viewer State exists
   or its seen Publication Version is lower than the current Publication Version. Successful
@@ -208,7 +208,7 @@ the same authorization never adds another open.
 The same metric may be grouped into bounded `DashboardOpenDaily`,
 `DashboardViewerOpenSummary`, and `DashboardOpenSnapshot` records. Those are materializations of
 Authorized Open counts, not new metrics. Agora does not track clicks, scrolling, filters, iframe
-loads, HTML/CSV fetches, previews, IP addresses, user agents, referrers, or content-origin
+loads, artifact fetches, previews, IP addresses, user agents, referrers, or content-origin
 behavior. It does not infer attention, completion, endorsement, or data quality from an open.
 
 Raw opens have a fixed 90-day retention window and partition-ready time keys. Aggregation commits
@@ -256,24 +256,26 @@ ownership transfer, archive/restore, or content-token renewal. Preview is owner-
 Revision-scoped, non-shareable, rendered through the same isolated content boundary, and never
 changes publication state, Dashboard Viewer State, or analytics.
 
-## Whole-CSV access
+## Whole-package access
 
-An active Viewer Grant to a Published Dashboard authorizes the viewer to retrieve **every CSV
-Attachment in the pinned Published Revision**, including files the HTML does not reference.
-There is no row-, column-, file-, or purpose-level filtering. Filenames provide no secrecy.
+An active Viewer Grant to a Published Dashboard authorizes the viewer to retrieve **every
+Supporting Artifact in the pinned Published Revision**, including files the HTML does not
+reference. In particular, every attached CSV is completely visible; there is no row-, column-,
+file-, or purpose-level filtering. Filenames provide no secrecy.
 
 - A Grant automatically applies when a future Revision is explicitly published.
 - A Grant alone exposes no Draft, Unpublished, Archived, or arbitrary Revision.
-- Each HTML and CSV request still requires server-side authorization or narrowly scoped render
+- Each artifact request still requires server-side authorization or narrowly scoped render
   authorization; opaque identifiers are not access control.
 - Revoke, disable, unpublish, archive, delete, or republish ends authorization at the next
-  server-side HTML or CSV check. Already received bytes cannot be recalled.
+  server-side artifact check. Already received bytes cannot be recalled.
 - Render credentials are bound to the exact Dashboard, User, Revision, and grant epoch. A
   credential issued for a revoked epoch never revives when that SOEID is granted a new epoch;
   the viewer must receive a newly issued credential for the new epoch.
 - Ownership transfer invalidates the prior owner's authority and the incoming owner's former
   Grant-bound credentials at the next check; it does not invalidate other active viewers.
-- Owner and Viewer UX must clearly explain complete-CSV visibility and user-created content.
+- Owner and Viewer UX must clearly explain whole-package and complete-CSV visibility plus
+  user-created content.
 
 ## Role expectations
 
@@ -281,7 +283,7 @@ There is no row-, column-, file-, or purpose-level filtering. Filenames provide 
   preview, publication/freshness, transfer, archive, restore, and delete; aggregate usage access
   is also scoped to current ownership.
 - **Granted viewer:** discovers only currently Published Dashboards with an active Grant and may
-  view only the pinned Revision and all of its CSVs.
+  view only the pinned Revision and all of its Supporting Artifacts.
 - **Administrator:** provisions, disables, re-enables, and resets Users. Dashboard content access
   still requires ownership or a Grant. A later break-glass operation must be separate and audited.
 - **Unauthenticated, disabled, or unrelated User:** receives no metadata or existence signal;
@@ -306,7 +308,7 @@ Deferred beyond the MVP:
 - editors, co-owners, groups, firmwide access, and anonymous/public links;
 - self-registration, enterprise SSO, directory sync, and federated lifecycle management;
 - row/column/per-attachment filtering, data masking, or download prevention;
-- multiple HTML files, mutable Revisions, attachment replacement, and Revision deletion;
+- multiple HTML files, mutable Revisions, in-place artifact replacement, and Revision deletion;
 - external asset/network allowlists, public signed links, service workers, and CDN delivery;
 - scheduled publication, approvals, collaboration, revision diffing, and automatic rollback;
 - ECS topology, production high availability, formal penetration testing, and malware services;

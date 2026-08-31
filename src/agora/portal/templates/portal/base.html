@@ -20,7 +20,7 @@
         defer
       ></script>
     {% endif %}
-    <script src="{% static 'portal/upload-dropzone.js' %}{% if development_reload %}?v={{ development_reload.version }}{% endif %}" defer></script>
+    {% block page_scripts %}{% endblock %}
     {% block head_extra %}{% endblock %}
   </head>
   <body class="portal-page{% block body_class %}{% endblock %}">

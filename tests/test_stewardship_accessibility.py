@@ -11,7 +11,7 @@ from django.middleware.csrf import get_token
 from django.template.loader import render_to_string
 from django.test import RequestFactory
 
-from agora.portal.forms import GrantViewerForm
+from agora.portal.forms import GrantViewerForm, RevisionUploadForm
 from agora.portal.stewardship_forms import (
     DashboardAccessRequestForm,
     TransferOwnershipConfirmForm,
@@ -443,3 +443,21 @@ def test_stewardship_templates_reuse_responsive_classes_without_inline_layout() 
     assert "{% csrf_token %}" in sources["access_requests.html"]
     assert "{% csrf_token %}" in sources["transfer_ownership.html"]
     assert "{% csrf_token %}" in sources["transfer_ownership_confirm.html"]
+
+
+def test_upload_template_scopes_dropzone_script_to_upload_page() -> None:
+    document = render_template(
+        "portal/projects/upload.html",
+        {"form": RevisionUploadForm(), "project": project()},
+    )
+    parser = parse(document)
+
+    assert parser.attributes_for("script") == [
+        {"src": "/static/portal/upload-dropzone.js", "defer": None}
+    ]
+    assert parser.attributes_for("style") == []
+    assert all(
+        not attribute.lower().startswith("on")
+        for _, attributes in parser.elements
+        for attribute in attributes
+    )

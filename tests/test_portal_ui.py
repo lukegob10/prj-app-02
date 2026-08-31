@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -159,9 +159,11 @@ def test_upload_template_uses_one_dropzone_and_states_replacement_policy() -> No
     assert "form.csv_files" not in source
     assert "data-upload-dropzone" in source
     assert "data-upload-list" in source
-    assert "upload-dropzone.js" not in source
-    assert "upload-dropzone.js" in base_source
-    assert "?v={{ development_reload.version }}" in base_source
+    assert source.count("upload-dropzone.js") == 1
+    assert source.count("{% static 'portal/upload-dropzone.js' %}") == 1
+    assert "?v={{ development_reload.version }}" in source
+    assert source.count("defer></script>") == 1
+    assert "upload-dropzone.js" not in base_source
     assert 'class="portal-upload-feedback"' in source
     assert "Drag and drop dashboard files" in source
     assert "click anywhere to choose multiple files" in source
@@ -364,9 +366,7 @@ def test_portal_shell_is_csp_compatible_and_uses_the_committed_stylesheet(client
             "href": "/static/portal/brand/apple-touch-icon.png",
         },
     ]
-    assert parser.attributes_for("script") == [
-        {"src": "/static/portal/upload-dropzone.js", "defer": None}
-    ]
+    assert parser.attributes_for("script") == []
     assert parser.attributes_for("style") == []
     assert all(not name.lower().startswith("on") for _, attrs in parser.elements for name in attrs)
     assert finders.find("portal/foundation.css") == str(PORTAL_CSS)
@@ -397,8 +397,8 @@ def test_development_shell_enables_self_hosted_live_refresh(client: Client) -> N
 @override_settings(AGORA_DEVELOPMENT_LIVE_RELOAD=True)
 def test_development_shell_marks_post_responses_as_non_reloadable() -> None:
     request = RequestFactory().post("/login/")
-    request.user = SimpleNamespace(is_authenticated=False)
-    request.resolver_match = SimpleNamespace(url_name="login")
+    request.user = cast(Any, SimpleNamespace(is_authenticated=False))
+    request.resolver_match = cast(Any, SimpleNamespace(url_name="login"))
 
     context = portal_shell(request)
 

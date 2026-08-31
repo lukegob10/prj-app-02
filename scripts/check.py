@@ -17,10 +17,10 @@ CHECKS = (
     Check("dependency lock", ("uv", "lock", "--check")),
     Check("format", ("ruff", "format", "--check", ".")),
     Check("lint", ("ruff", "check", ".")),
-    Check("types", ("mypy", "src", "tests", "scripts")),
+    Check("types", ("mypy", "src", "tests", "scripts", "deploy")),
     Check(
         "bytecode compile",
-        (sys.executable, "-m", "compileall", "-q", "src", "scripts"),
+        (sys.executable, "-m", "compileall", "-q", "src", "scripts", "deploy"),
     ),
     Check("portal system checks", (sys.executable, "manage.py", "check", "--database", "default")),
     Check(

@@ -52,7 +52,7 @@ returns uploaded bytes through the portal process.
 | Surface | URL | Process | Trust |
 |---|---|---|---|
 | Portal | `https://localhost:8443` | `scripts/run_https.py` → `agora.settings.portal` | Trusted UI; host-only secure cookies. |
-| Content | `https://127.0.0.1:8444` | `scripts/run_content_https.py` → `agora.settings.content` | Untrusted/read-only; exact authorized routes plus catch-all 404. |
+| Content | `https://127.0.0.1:8444` | `scripts/run_content_https.py` → `agora.settings.content` | Untrusted/read-only; exact health probes and authorized routes plus catch-all 404. |
 | Oracle | package-managed `PROD` profile | `treasury_analytics.TAConnection` through the custom Django backend | Metadata boundary; connection coordinates stay inside the package. |
 | Artifacts | absolute `AGORA_ARTIFACT_ROOT` | AG-002 private filesystem adapter | Opaque generated keys only; never a static/media root or raw URL. |
 
@@ -84,10 +84,17 @@ must first provide per-Dashboard/per-Revision origin isolation or an independent
 equivalent. CSP is defense in depth, not a complete browser network firewall; AG-007 owns
 supported-browser tests and any additional egress controls required by the deployment.
 
-The source tree encodes the split with distinct settings, URLconfs, ASGI/WSGI applications, and
-middleware. Both compositions load the shared persistence models, but the content composition
-has no sessions, templates, mutation routes, or portal middleware. Its exact renderer routes are
-GET/HEAD-only and every unmatched path returns 404 with a default-deny CSP. The portal host
+The source tree encodes the split with distinct settings, URLconfs, ASGI applications, and
+middleware. The WSGI callables remain compatibility/diagnostic interfaces only; the supported
+production runtime is the proxy-hardened ASGI path documented in [`deployment.md`](./deployment.md).
+Both compositions load the shared persistence models, but the content composition
+has no sessions, templates, mutation routes, or portal middleware. Each composition exposes only
+`/health/live/` and `/health/ready/` as its unauthenticated operational probes. Liveness is a
+constant response with no Oracle or storage dependency; readiness single-flights the database
+probe and returns only generic status text. The managed connection profile must bound Oracle
+connect/ping time. The content composition has no other unauthenticated
+non-artifact route: its exact renderer routes are GET/HEAD-only and every unmatched path returns
+404 with a default-deny CSP. Health probes never read or return uploaded bytes. The portal host
 allowlist excludes the content hostname.
 
 Portal-issued render credentials are 256-bit random values stored only as SHA-256 digests. They
@@ -110,7 +117,8 @@ src/agora/settings/base.py   non-browser shared settings
 src/agora/settings/portal.py trusted portal composition
 src/agora/settings/content.py isolated content composition
 src/agora/urls/portal.py     trusted UI/API routes only
-src/agora/urls/content.py    exact authorized package routes plus catch-all 404
+src/agora/urls/content.py    exact health probes plus authorized package routes and catch-all 404
+src/agora/health.py          dependency-safe liveness/readiness responses
 src/agora/rendering/         render authorization, delivery, CSP, and sandbox policy
 src/agora/portal/            trusted project, upload, preview, identity, and admin UI
 src/agora/persistence/       constrained metadata, domain services, migrations, private storage

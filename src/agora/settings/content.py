@@ -18,3 +18,8 @@ MIDDLEWARE = [
     "agora.middleware.ContentSecurityHeadersMiddleware",
 ]
 TEMPLATES: list[dict[str, object]] = []
+
+# These deploy warnings describe protections that would violate the content composition:
+# CSRF middleware is unnecessary for a GET/HEAD-only service, and X-Frame-Options would block
+# the exact cross-origin portal frame already constrained by response-enforced CSP.
+SILENCED_SYSTEM_CHECKS = [*SILENCED_SYSTEM_CHECKS, "security.W002", "security.W003"]

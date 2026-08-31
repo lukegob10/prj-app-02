@@ -124,6 +124,47 @@ def load_service_secret(environ: Mapping[str, str], service: ServiceName) -> str
     return value
 
 
+def load_portal_static_root(
+    environ: Mapping[str, str],
+    *,
+    environment: EnvironmentName,
+    development_default: Path,
+) -> Path:
+    """Resolve the portal static output without relying on an installed-wheel path."""
+
+    value = environ.get("AGORA_STATIC_ROOT", "").strip()
+    if not value and environment != "production":
+        return development_default.resolve(strict=False)
+
+    errors: list[str] = []
+    static_root = _parse_absolute_path(environ, "AGORA_STATIC_ROOT", errors)
+    if errors:
+        detail = "\n".join(f"- {error}" for error in errors)
+        raise ImproperlyConfigured(f"Agora configuration is invalid:\n{detail}")
+    assert static_root is not None
+    return static_root
+
+
+def validate_treasury_package(
+    environment: EnvironmentName,
+    *,
+    development_stand_in: bool,
+    distribution_present: bool,
+    distribution_summary: str,
+) -> None:
+    """Prevent the repository's local Oracle package from entering production."""
+
+    normalized_summary = distribution_summary.casefold()
+    local_summary = "stand-in" in normalized_summary or "development-only" in normalized_summary
+    if environment == "production" and (
+        development_stand_in or local_summary or not distribution_present
+    ):
+        raise ImproperlyConfigured(
+            "Agora production requires the managed treasury-analytics package; "
+            "the repository development stand-in is not allowed."
+        )
+
+
 def _required(
     environ: Mapping[str, str],
     name: str,

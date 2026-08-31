@@ -1,4 +1,4 @@
-"""WSGI entry point for the isolated content service."""
+"""Compatibility/diagnostic WSGI entry point; production uses hardened ASGI."""
 
 import os
 

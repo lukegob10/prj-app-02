@@ -33,7 +33,8 @@ Dashboard content access.
 3. Content authorization cannot authorize portal APIs or a different User, Dashboard, Revision,
    filename, or storage key.
 4. Every dashboard-package fetch is authorized server-side. Identifier entropy is defense-in-depth.
-5. Content exposes only narrow read-only GET/HEAD endpoints; portal owns identity and mutations.
+5. Content exposes only exact unauthenticated `/health/live/` and `/health/ready/` probes plus
+   narrow read-only GET/HEAD artifact endpoints; portal owns identity and mutations.
 6. Filenames are logical display names only. Adapter-generated keys and root-containment checks
    own storage addressing.
 7. Artifacts remain private and outside public/static roots; a raw storage URL never exists.
@@ -85,6 +86,7 @@ recall bytes that were already streamed to a browser, which is an explicit resid
 | **Cross-Dashboard browser storage** | Conservative baseline omits `allow-same-origin`, giving sandboxed documents an opaque origin. If AG-007 instead needs same-origin behavior, it must isolate each Dashboard/Revision on a distinct origin or prove an equivalent partition that prevents cookie, cache, service-worker, IndexedDB, and Web Storage sharing. | AG-007/AG-011 use two hostile Dashboards to attempt cross-Revision storage and cache communication in every supported browser. |
 | **External data exfiltration** | Content CSP blocks common external `connect`, image, media, font, frame, form, and worker channels; no external allowlist or portal credentials; sandbox omits navigation/popup/form capabilities; exact content routes. | AG-007/AG-011 fixtures attempt fetch/XHR/WebSocket/EventSource/beacon/image/CSS/font/form/popup/worker, document navigation, WebRTC/STUN, and DNS-prefetch channels. CSP is not a complete egress boundary: browser-dependent navigation, WebRTC, and DNS effects require supported-browser evidence and may require network egress controls. |
 | **Browser denial of service** | Size/count caps; deny workers; load one frame only after explicit preview/view; keep stop/reload/back controls outside the iframe; time out/recover without losing the portal session. | AG-009/AG-011 hostile infinite-loop, huge DOM, timer, and large-data cases. Guaranteed prevention of hostile JavaScript CPU abuse is explicitly out of scope. |
+| **Health probe disclosure or bypass** | Both compositions expose only exact `/health/live/` and `/health/ready/` probes as unauthenticated operational routes. Liveness has no dependency side effects; readiness checks Oracle and the private artifact root but returns only generic status text. Probes never read uploaded bytes, credentials, tokens, paths, or exception details; the edge restricts probe traffic to the internal orchestrator network. | Focused health contract tests cover exact paths, method restrictions, generic failure responses, dependency behavior, isolated content policy, and hostile-byte non-delivery. |
 | **Secret/config leakage** | Typed required startup configuration, no usable defaults/placeholders, ignored `.env`, externally injected production secrets, redacted errors/logging, distinct signing purposes, SHA-pinned CI actions. | AG-001 config tests cover missing/malformed/production/redaction; repository secret/dependency scanning arrives in AG-010. |
 
 ## Active content response policy

@@ -2,7 +2,7 @@
 
 import os
 
-from agora.config import load_service_secret
+from agora.config import load_portal_static_root, load_service_secret
 from agora.settings.base import *
 
 SECRET_KEY = load_service_secret(os.environ, "portal")
@@ -63,7 +63,11 @@ TEMPLATES = [
 ]
 
 STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / ".local" / "static"
+STATIC_ROOT = load_portal_static_root(
+    os.environ,
+    environment=RUNTIME.environment,
+    development_default=BASE_DIR / ".local" / "static",
+)
 # One HTML entry point plus at most 50 supporting files. Django enforces this while parsing the
 # multipart request, before the package validator independently counts and stages every part.
 DATA_UPLOAD_MAX_NUMBER_FILES = 51

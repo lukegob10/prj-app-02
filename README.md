@@ -138,7 +138,7 @@ Focused commands are also available:
 uv lock --check
 uv run ruff format --check .
 uv run ruff check .
-uv run mypy src tests scripts
+uv run mypy src tests scripts deploy
 uv run pytest
 uv build
 ```
@@ -162,6 +162,8 @@ the corresponding `TA_<ENV>_PASSWORD`, while installing the corporate implementa
 `treasury_analytics.TAConnection` API.
 Configuration keys and safe local setup are documented in
 [docs/configuration.md](./docs/configuration.md).
+The canonical managed-wheel image, prepare/serve commands, health smoke, static-volume handoff,
+and rollback contract are documented in [docs/deployment.md](./docs/deployment.md).
 
 Expired storage reservations can be reconciled idempotently without scanning arbitrary paths:
 
@@ -177,7 +179,8 @@ The private filesystem contract, durability assumptions, and backup boundary are
 The current vertical slice includes the unified Projects workspace, My Projects, Shared with Me,
 Create Project, Project Detail, owner-facing project access management by canonical SOEID, bounded dashboard-package upload, and
 owner/published viewing through the isolated renderer. It does not yet include publish/unpublish
-controls, archive/delete, object storage, ECS topology, reverse-proxy SSO, or production hosting.
+controls, archive/delete, object storage, ECS topology, reverse-proxy SSO, or platform-specific
+production hosting.
 Those remain explicit backlog work rather than hidden behavior. Production capacity for thousands
 of simultaneous users remains an unverified staging target; see [`docs/scaling.md`](docs/scaling.md)
 for the workload gates and current blockers.

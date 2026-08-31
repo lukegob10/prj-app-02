@@ -7,7 +7,13 @@ from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
-from agora.config import RuntimeConfig, ServiceName, load_service_secret
+from agora.config import (
+    RuntimeConfig,
+    ServiceName,
+    load_portal_static_root,
+    load_service_secret,
+    validate_treasury_package,
+)
 from agora.persistence.checks import _overlaps, private_artifact_root_check
 from agora.settings.portal import _portal_template_loaders
 
@@ -178,6 +184,96 @@ def test_valid_production_configuration_is_explicit_and_secure(tmp_path: Path) -
     assert config.is_production is True
     assert config.portal_origin.scheme == "https"
     assert config.content_origin.scheme == "https"
+
+
+def test_production_rejects_the_repository_treasury_stand_in() -> None:
+    validate_treasury_package(
+        "development",
+        development_stand_in=True,
+        distribution_present=True,
+        distribution_summary="Local stand-in for managed Treasury Analytics",
+    )
+    validate_treasury_package(
+        "test",
+        development_stand_in=True,
+        distribution_present=True,
+        distribution_summary="Local stand-in for managed Treasury Analytics",
+    )
+    validate_treasury_package(
+        "production",
+        development_stand_in=False,
+        distribution_present=True,
+        distribution_summary="Managed Treasury Analytics",
+    )
+
+    with pytest.raises(ImproperlyConfigured, match="managed treasury-analytics package"):
+        validate_treasury_package(
+            "production",
+            development_stand_in=True,
+            distribution_present=True,
+            distribution_summary="Local stand-in for managed Treasury Analytics",
+        )
+
+
+@pytest.mark.parametrize(
+    ("development_stand_in", "distribution_present", "distribution_summary"),
+    [
+        (False, True, "Local stand-in for Treasury Analytics"),
+        (False, True, "Development-only Treasury Analytics implementation"),
+        (False, False, ""),
+    ],
+)
+def test_production_rejects_stale_or_missing_treasury_distributions(
+    development_stand_in: bool,
+    distribution_present: bool,
+    distribution_summary: str,
+) -> None:
+    with pytest.raises(ImproperlyConfigured, match="managed treasury-analytics package"):
+        validate_treasury_package(
+            "production",
+            development_stand_in=development_stand_in,
+            distribution_present=distribution_present,
+            distribution_summary=distribution_summary,
+        )
+
+
+def test_production_requires_an_explicit_absolute_static_root(tmp_path: Path) -> None:
+    with pytest.raises(ImproperlyConfigured, match="AGORA_STATIC_ROOT is required"):
+        load_portal_static_root(
+            {},
+            environment="production",
+            development_default=tmp_path / "local-static",
+        )
+
+    with pytest.raises(ImproperlyConfigured, match="must be an absolute path"):
+        load_portal_static_root(
+            {"AGORA_STATIC_ROOT": "relative/static"},
+            environment="production",
+            development_default=tmp_path / "local-static",
+        )
+
+    production_root = tmp_path / "production-static"
+    assert (
+        load_portal_static_root(
+            {"AGORA_STATIC_ROOT": str(production_root)},
+            environment="production",
+            development_default=tmp_path / "local-static",
+        )
+        == production_root.resolve()
+    )
+
+
+def test_nonproduction_static_root_keeps_the_local_default(tmp_path: Path) -> None:
+    local_root = tmp_path / "local-static"
+
+    assert (
+        load_portal_static_root(
+            {},
+            environment="test",
+            development_default=local_root,
+        )
+        == local_root.resolve()
+    )
 
 
 def test_configuration_rejects_unknown_environment(tmp_path: Path) -> None:

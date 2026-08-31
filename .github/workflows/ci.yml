@@ -19,11 +19,14 @@ jobs:
     timeout-minutes: 30
     env:
       AGORA_ENVIRONMENT: test
+      AGORA_TEST_DATABASE_RESET_ALLOWED: "true"
       AGORA_DEBUG: "false"
       AGORA_PORTAL_SECRET_KEY: portal-test-only-not-a-secret-000000000000000000000000000000000000000000000000
       AGORA_CONTENT_SECRET_KEY: content-test-only-not-a-secret-00000000000000000000000000000000000000000000000
       AGORA_PORTAL_ORIGIN: http://portal.agora.test:8000
       AGORA_CONTENT_ORIGIN: http://content.agorausercontent.test:8001
+      # ENV is the Treasury Analytics Oracle profile name, not AGORA_ENVIRONMENT;
+      # this alias must resolve to CI's dedicated disposable validation schema.
       ENV: PROD
       TA_PROD_PASSWORD: ${{ secrets.TA_PROD_PASSWORD }}
       AGORA_ARTIFACT_ROOT: ${{ github.workspace }}/.local/artifacts

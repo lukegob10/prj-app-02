@@ -18,7 +18,7 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
-from agora.persistence.models import (
+from agora.core.models import (
     AccessRequest,
     AuditEvent,
     Dashboard,
@@ -29,8 +29,8 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
-from agora.persistence.names import InvalidDashboardTag, normalize_dashboard_tag
-from agora.persistence.querying import get_one_or_none
+from agora.core.names import InvalidDashboardTag, normalize_dashboard_tag
+from agora.core.querying import get_one_or_none
 
 MAX_EFFECTIVE_TAGS: Final = 5
 MAX_PUBLICATION_NOTE_LENGTH: Final = 240

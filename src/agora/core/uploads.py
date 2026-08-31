@@ -1,13 +1,13 @@
-"""Persistence adapter for validated dashboard-package upload revisions."""
+"""Core-domain adapter for validated dashboard-package upload revisions."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from uuid import UUID
 
-from agora.persistence.models import Artifact, Revision
-from agora.persistence.services import ArtifactPayload, create_complete_revision
-from agora.persistence.storage import ArtifactStorage
+from agora.core.models import Artifact, Revision
+from agora.core.services import ArtifactPayload, create_complete_revision
+from agora.core.storage import ArtifactStorage
 from agora.uploads import (
     StagedUpload,
     UploadLimits,

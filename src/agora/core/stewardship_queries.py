@@ -6,7 +6,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 
-from agora.persistence.models import AccessRequest, Dashboard
+from agora.core.models import AccessRequest, Dashboard
 
 
 def owner_pending_access_requests(

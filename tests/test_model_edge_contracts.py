@@ -11,9 +11,10 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
-from agora.persistence.models import (
+from agora.core.models import (
     AccessRequest,
     AnalyticsPipelineCheckpoint,
+    Artifact,
     AuthorizedOpen,
     Dashboard,
     DashboardFavorite,
@@ -31,7 +32,7 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
-from agora.persistence.storage import StorageKey
+from agora.core.storage import StorageKey
 
 
 def _user(label: str, *, active: bool = True) -> User:
@@ -92,6 +93,26 @@ def _authorization(
         created_at=created_at,
         expires_at=created_at + timedelta(minutes=5),
     )
+
+
+def test_user_and_artifact_validation_reject_malformed_boundary_values() -> None:
+    with pytest.raises(ValidationError, match="SOEID"):
+        _user("not a valid soeid").clean()
+
+    owner = _user("ARTIFACT.OWNER")
+    revision = _revision(_dashboard(owner))
+    artifact = Artifact(
+        revision=revision,
+        kind=Artifact.Kind.HTML,
+        logical_name="dashboard.html",
+        name_key="dashboard.html",
+        storage_key=str(StorageKey.generate()),
+        byte_size=1,
+        media_type="text/plain",
+        sha256="0" * 64,
+    )
+    with pytest.raises(ValidationError, match="media type is not allowed"):
+        artifact.clean()
 
 
 def test_retained_models_and_simple_string_forms() -> None:

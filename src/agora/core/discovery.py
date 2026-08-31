@@ -28,21 +28,21 @@ from django.db.models import (
     When,
 )
 
-from agora.persistence.enhancement_queries import MAX_AUTHORIZATION_CANDIDATES
-from agora.persistence.models import (
+from agora.core.enhancement_queries import MAX_AUTHORIZATION_CANDIDATES
+from agora.core.models import (
     Dashboard,
     DashboardFavorite,
     DashboardTag,
     DashboardViewerState,
     ViewerGrant,
 )
-from agora.persistence.names import (
+from agora.core.names import (
     InvalidDashboardTag,
     InvalidSoeid,
     canonicalize_soeid,
     normalize_dashboard_tag,
 )
-from agora.persistence.pagination import CursorColumn, CursorValueKind
+from agora.core.pagination import CursorColumn, CursorValueKind
 
 DISCOVERY_PAGE_SIZE: Final = 25
 PERSONAL_DASHBOARD_LIMIT: Final = 10
@@ -239,7 +239,7 @@ def authorized_published_dashboard(
     """Resolve one active Published dashboard without disclosing hidden metadata.
 
     This is the read-side eligibility check for a Favorite POST.  The mutation
-    remains delegated to :func:`agora.persistence.enhancements.set_dashboard_favorite`.
+    remains delegated to :func:`agora.core.enhancements.set_dashboard_favorite`.
     """
 
     return (

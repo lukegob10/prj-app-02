@@ -11,9 +11,9 @@ import pytest
 from django.core import signing
 from django.db.models import Model, Q, QuerySet
 
-from agora.persistence import pagination
-from agora.persistence.models import Dashboard, User
-from agora.persistence.pagination import (
+from agora.core import pagination
+from agora.core.models import Dashboard, User
+from agora.core.pagination import (
     CursorColumn,
     CursorValueKind,
     InvalidCursor,

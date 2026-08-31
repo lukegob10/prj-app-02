@@ -8,7 +8,7 @@ import pytest
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.utils import timezone
 
-from agora.persistence.access import (
+from agora.core.access import (
     GrantRejection,
     GrantViewerRejected,
     ProjectAccessDenied,
@@ -18,7 +18,7 @@ from agora.persistence.access import (
     revoke_project_viewer,
     user_can_view_published,
 )
-from agora.persistence.models import (
+from agora.core.models import (
     AuditEvent,
     Dashboard,
     ImmutableRecordError,
@@ -148,7 +148,7 @@ def test_grant_maps_a_lost_unique_index_race_after_rolling_back_its_savepoint(
         raise IntegrityError("simulated active-grant unique-index race")
 
     monkeypatch.setattr(
-        "agora.persistence.access.has_active_viewer_grant",
+        "agora.core.access.has_active_viewer_grant",
         simulated_active_grant,
     )
     monkeypatch.setattr(ViewerGrant.objects, "create", lose_insert_race)
@@ -389,7 +389,7 @@ def test_render_authorization_binds_the_exact_active_epoch() -> None:
 
 
 def test_epoch_migration_uses_prefixed_oracle_active_index() -> None:
-    migration = import_module("agora.persistence.migrations.0011_project_viewer_epochs")
+    migration = import_module("agora.core.migrations.0011_project_viewer_epochs")
     assert migration.Migration.dependencies == [
         ("persistence", "0010_apply_agora_project_table_prefix")
     ]

@@ -18,8 +18,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet, Subquery
 from django.utils import timezone
 
-from agora.persistence.enhancements import EnhancementAccessDenied
-from agora.persistence.models import (
+from agora.core.enhancements import EnhancementAccessDenied
+from agora.core.models import (
     AnalyticsPipelineCheckpoint,
     Dashboard,
     DashboardOpenDaily,
@@ -29,10 +29,10 @@ from agora.persistence.models import (
     RenderAuthorization,
     ViewerGrant,
 )
-from agora.persistence.models import (
+from agora.core.models import (
     AuthorizedOpen as _AuthorizedOpen,
 )
-from agora.persistence.querying import get_one_or_none
+from agora.core.querying import get_one_or_none
 
 ANALYTICS_PIPELINE_KEY: Final = "authorized_opens_v1"
 AUTHORIZED_OPEN_RETENTION_DAYS: Final = 90

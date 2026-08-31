@@ -6,7 +6,7 @@ from typing import Any
 
 from django import forms
 
-from agora.persistence.names import InvalidSoeid, canonicalize_soeid
+from agora.core.names import InvalidSoeid, canonicalize_soeid
 
 _PASSWORD_MAX_LENGTH = 256
 

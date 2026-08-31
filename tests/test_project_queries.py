@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from agora.persistence.models import AuditEvent, Dashboard, Revision, User, ViewerGrant
-from agora.persistence.pagination import CursorColumn, CursorValueKind, paginate_keyset
-from agora.persistence.projects import (
+from agora.core.models import AuditEvent, Dashboard, Revision, User, ViewerGrant
+from agora.core.pagination import CursorColumn, CursorValueKind, paginate_keyset
+from agora.core.projects import (
+    ProjectRenameDenied,
     manageable_project,
     owned_projects,
     prefetch_revision_artifacts,
@@ -109,6 +111,18 @@ def test_rename_project_preserves_identity_and_allows_duplicate_display_names(
         dashboard=project,
         metadata={},
     ).exists()
+
+
+def test_rename_project_rejects_invalid_or_unowned_changes_and_skips_noops(owner: User) -> None:
+    project = dashboard(owner, "Unchanged")
+
+    with pytest.raises(ValueError, match="between 1 and 200"):
+        rename_project(project_id=project.id, owner_id=owner.id, name="   ")
+    with pytest.raises(ProjectRenameDenied):
+        rename_project(project_id=uuid4(), owner_id=owner.id, name="Unavailable")
+
+    assert rename_project(project_id=project.id, owner_id=owner.id, name="Unchanged") == project
+    assert not AuditEvent.objects.filter(event_type="dashboard.renamed", dashboard=project).exists()
 
 
 def test_detail_primitives_are_owner_scoped_and_bounded(

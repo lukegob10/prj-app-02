@@ -16,9 +16,9 @@ from django.http import (
 )
 from django.utils.cache import patch_vary_headers
 
-from agora.persistence.models import Artifact
-from agora.persistence.names import InvalidLogicalName, normalize_logical_name
-from agora.persistence.storage import ArtifactStorageError, FilesystemArtifactStorage, StorageKey
+from agora.core.models import Artifact
+from agora.core.names import InvalidLogicalName, normalize_logical_name
+from agora.core.storage import ArtifactStorageError, FilesystemArtifactStorage, StorageKey
 from agora.rendering.authorization import (
     RenderAuthorizationDenied,
     resolve_render_authorization,

@@ -14,13 +14,13 @@ from django.test import Client
 from django.urls import resolve, reverse
 from django.utils import timezone
 
-from agora.persistence.enhancements import (
+from agora.core.enhancements import (
     publish_dashboard_revision,
     request_dashboard_access,
     resolve_dashboard_access_request,
     transfer_dashboard_ownership,
 )
-from agora.persistence.models import (
+from agora.core.models import (
     AccessRequest,
     Artifact,
     AuditEvent,
@@ -32,8 +32,8 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
-from agora.persistence.services import ArtifactPayload, create_complete_revision
-from agora.persistence.storage import FilesystemArtifactStorage
+from agora.core.services import ArtifactPayload, create_complete_revision
+from agora.core.storage import FilesystemArtifactStorage
 from agora.portal import stewardship as stewardship_views
 from agora.rendering.authorization import (
     RenderAuthorizationDenied,

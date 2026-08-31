@@ -10,7 +10,7 @@ from typing import cast
 
 import pytest
 
-from agora.persistence.storage import (
+from agora.core.storage import (
     ArtifactStorageError,
     FilesystemArtifactStorage,
     InvalidStorageKey,

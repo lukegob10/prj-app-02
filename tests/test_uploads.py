@@ -4,12 +4,15 @@ import hashlib
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import BinaryIO, cast
+from unittest.mock import Mock
+from uuid import uuid4
 
 import pytest
 from django.db import IntegrityError
 
-import agora.persistence.services as persistence_services
-from agora.persistence.models import (
+import agora.core.services as core_services
+import agora.core.uploads as core_uploads
+from agora.core.models import (
     Artifact,
     AuditEvent,
     Dashboard,
@@ -17,8 +20,8 @@ from agora.persistence.models import (
     StorageReservation,
     User,
 )
-from agora.persistence.names import normalize_logical_name
-from agora.persistence.storage import (
+from agora.core.names import normalize_logical_name
+from agora.core.storage import (
     ArtifactStorageError,
     FilesystemArtifactStorage,
     StorageCleanupRequired,
@@ -26,7 +29,7 @@ from agora.persistence.storage import (
     StorageWriteCommitted,
     StoredArtifact,
 )
-from agora.persistence.uploads import create_upload_revision
+from agora.core.uploads import create_upload_revision
 from agora.uploads import (
     UPLOAD_EXTENSION_MAP,
     UPLOAD_EXTENSION_TO_KIND,
@@ -1070,12 +1073,25 @@ def test_persistence_adapter_commits_only_after_validation_and_preserves_bytes(
     assert AuditEvent.objects.get().event_type == "revision.created"
     assert StorageReservation.objects.count() == 0
     for artifact in revision.artifacts.all():
-        with storage.open(persistence_key(artifact.storage_key)) as stream:
+        with storage.open(artifact_key(artifact.storage_key)) as stream:
             expected = html if artifact.kind == Artifact.Kind.HTML else csv_content
             assert stream.read() == expected
 
 
-def persistence_key(value: str) -> StorageKey:
+def test_upload_revision_alias_delegates_to_the_canonical_core_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = cast(Revision, object())
+    create_revision = Mock(return_value=expected)
+    monkeypatch.setattr(core_uploads, "create_upload_revision", create_revision)
+    dashboard_id = uuid4()
+
+    assert core_uploads.upload_revision(dashboard_id=dashboard_id) is expected
+
+    create_revision.assert_called_once_with(dashboard_id=dashboard_id)
+
+
+def artifact_key(value: str) -> StorageKey:
     return StorageKey(value)
 
 
@@ -1114,7 +1130,7 @@ def test_persistence_metadata_failure_cleans_completed_artifacts(
         del kwargs
         raise IntegrityError("simulated metadata failure")
 
-    monkeypatch.setattr(persistence_services, "_commit_revision_metadata", fail_commit)
+    monkeypatch.setattr(core_services, "_commit_revision_metadata", fail_commit)
     with pytest.raises(IntegrityError, match="metadata failure"):
         create_upload_revision(
             dashboard_id=dashboard.id,

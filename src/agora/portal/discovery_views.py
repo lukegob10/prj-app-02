@@ -13,7 +13,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_POST
 
-from agora.persistence.discovery import (
+from agora.core.discovery import (
     DISCOVERY_CURSOR_COLUMNS,
     DISCOVERY_CURSOR_NAMESPACE,
     DISCOVERY_PAGE_SIZE,
@@ -22,16 +22,16 @@ from agora.persistence.discovery import (
     authorized_published_dashboard,
     search_dashboards,
 )
-from agora.persistence.enhancement_queries import dashboard_tags
-from agora.persistence.enhancements import (
+from agora.core.enhancement_queries import dashboard_tags
+from agora.core.enhancements import (
     EnhancementAccessDenied,
     EnhancementValidationError,
     replace_dashboard_tags,
     set_dashboard_favorite,
 )
-from agora.persistence.models import Dashboard, User
-from agora.persistence.pagination import CursorPage, InvalidCursor, paginate_keyset
-from agora.persistence.projects import manageable_project
+from agora.core.models import Dashboard, User
+from agora.core.pagination import CursorPage, InvalidCursor, paginate_keyset
+from agora.core.projects import manageable_project
 
 from .discovery_forms import DashboardSearchForm, DashboardTagsForm
 from .security import safe_next_url

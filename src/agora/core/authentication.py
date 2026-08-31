@@ -15,14 +15,16 @@ from django.http import HttpRequest
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
-from agora.persistence.models import AuditEvent, LoginThrottle, User
-from agora.persistence.names import InvalidSoeid, canonicalize_soeid
-from agora.persistence.querying import get_one_or_none
+from agora.core.models import AuditEvent, LoginThrottle, User
+from agora.core.names import InvalidSoeid, canonicalize_soeid
+from agora.core.querying import get_one_or_none
 
 MAX_PASSWORD_LENGTH: Final = 256
 AUTH_FAILURE_LIMIT: Final = 5
 AUTH_FAILURE_WINDOW: Final = timedelta(minutes=15)
 AUTH_LOCKOUT_DURATION: Final = timedelta(minutes=1)
+# Stable persisted namespace: changing it changes every throttle bucket identity.
+_THROTTLE_BUCKET_SALT: Final = "agora.persistence.authentication.throttle"
 
 
 class IdentityServiceError(RuntimeError):
@@ -247,7 +249,7 @@ def _remote_address(request: HttpRequest) -> str:
 
 def _bucket_hash(scope: str, value: str) -> str:
     return salted_hmac(
-        "agora.persistence.authentication.throttle",
+        _THROTTLE_BUCKET_SALT,
         f"{scope}:{value}",
         secret=settings.SECRET_KEY,
         algorithm="sha256",

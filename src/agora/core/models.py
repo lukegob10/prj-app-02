@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 
 from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
@@ -13,7 +13,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
-from agora.persistence.names import (
+from agora.core.names import (
     InvalidDashboardTag,
     InvalidLogicalName,
     InvalidSoeid,
@@ -21,6 +21,9 @@ from agora.persistence.names import (
     normalize_dashboard_tag,
     normalize_logical_name,
 )
+
+# Stable persisted namespace: changing it invalidates every existing session.
+_SESSION_AUTH_HASH_SALT: Final = "agora.persistence.models.User.get_session_auth_hash"
 
 STORAGE_KEY_PATTERN = r"^v1/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
@@ -95,7 +98,7 @@ class User(AbstractBaseUser):
     def get_session_auth_hash(self) -> str:
         """Bind every session to the current password and revocation version."""
         return salted_hmac(
-            "agora.persistence.models.User.get_session_auth_hash",
+            _SESSION_AUTH_HASH_SALT,
             f"{self.password}:{self.auth_version}",
             secret=settings.SECRET_KEY,
         ).hexdigest()

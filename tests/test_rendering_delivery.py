@@ -17,8 +17,8 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from agora.persistence.access import grant_project_viewer, revoke_project_viewer
-from agora.persistence.models import (
+from agora.core.access import grant_project_viewer, revoke_project_viewer
+from agora.core.models import (
     AuditEvent,
     Dashboard,
     DashboardFavorite,
@@ -29,8 +29,8 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
-from agora.persistence.storage import FilesystemArtifactStorage
-from agora.persistence.uploads import create_upload_revision
+from agora.core.storage import FilesystemArtifactStorage
+from agora.core.uploads import create_upload_revision
 from agora.rendering.authorization import (
     RenderAuthorizationDenied,
     RenderAuthorizationUnavailable,

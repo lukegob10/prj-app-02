@@ -13,8 +13,8 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from agora.persistence.enhancements import EnhancementAccessDenied, set_dashboard_favorite
-from agora.persistence.models import (
+from agora.core.enhancements import EnhancementAccessDenied, set_dashboard_favorite
+from agora.core.models import (
     Artifact,
     Dashboard,
     DashboardFavorite,

@@ -11,7 +11,7 @@ ROOT_URLCONF = "agora.urls.content"
 WSGI_APPLICATION = "agora.content_wsgi.application"
 ASGI_APPLICATION = "agora.content_asgi.application"
 
-INSTALLED_APPS = ["agora.persistence"]
+INSTALLED_APPS = ["agora.core.apps.CoreConfig"]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",

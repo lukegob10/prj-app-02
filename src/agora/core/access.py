@@ -14,9 +14,9 @@ from uuid import UUID
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from agora.persistence.models import AuditEvent, Dashboard, User, ViewerGrant
-from agora.persistence.names import InvalidSoeid, canonicalize_soeid
-from agora.persistence.querying import get_one_or_none
+from agora.core.models import AuditEvent, Dashboard, User, ViewerGrant
+from agora.core.names import InvalidSoeid, canonicalize_soeid
+from agora.core.querying import get_one_or_none
 
 _GENERIC_ACCESS_FAILURE = "project access is not available"
 

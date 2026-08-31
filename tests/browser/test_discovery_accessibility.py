@@ -11,7 +11,7 @@ from django.template.loader import render_to_string
 from django.test import RequestFactory
 from playwright.sync_api import Page
 
-from agora.persistence.models import User
+from agora.core.models import User
 from agora.portal.discovery_forms import DashboardSearchForm, DashboardTagsForm
 
 pytestmark = [pytest.mark.browser, pytest.mark.only_browser("chromium")]

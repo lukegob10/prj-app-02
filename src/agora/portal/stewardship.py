@@ -15,20 +15,20 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_POST
 
-from agora.persistence.enhancements import (
+from agora.core.enhancements import (
     EnhancementAccessDenied,
     resolve_dashboard_access_request,
     transfer_dashboard_ownership,
 )
-from agora.persistence.models import AccessRequest, Dashboard, User
-from agora.persistence.pagination import (
+from agora.core.models import AccessRequest, Dashboard, User
+from agora.core.pagination import (
     CursorColumn,
     CursorValueKind,
     InvalidCursor,
     paginate_keyset,
 )
-from agora.persistence.projects import manageable_project
-from agora.persistence.stewardship_queries import owner_pending_access_requests
+from agora.core.projects import manageable_project
+from agora.core.stewardship_queries import owner_pending_access_requests
 
 from .stewardship_forms import TransferOwnershipConfirmForm, TransferOwnershipForm
 

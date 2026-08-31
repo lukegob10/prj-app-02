@@ -17,7 +17,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "agora.persistence",
+    "agora.core.apps.CoreConfig",
     "agora.portal",
 ]
 MIDDLEWARE = [

@@ -6,8 +6,8 @@ from typing import Any
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from agora.persistence.services import cleanup_expired_reservations
-from agora.persistence.storage import ArtifactStorageError, FilesystemArtifactStorage
+from agora.core.services import cleanup_expired_reservations
+from agora.core.storage import ArtifactStorageError, FilesystemArtifactStorage
 
 
 class Command(BaseCommand):

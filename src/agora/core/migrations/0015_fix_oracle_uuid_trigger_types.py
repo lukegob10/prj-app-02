@@ -5,9 +5,9 @@ from typing import Final, cast
 
 from django.db import migrations
 
-_CORE_MIGRATION: Final = "agora.persistence.migrations.0012_enhancement_core_schema"
-_TRANSFER_MIGRATION: Final = "agora.persistence.migrations.0013_ownership_transfer_invariants"
-_ANALYTICS_MIGRATION: Final = "agora.persistence.migrations.0014_usage_analytics_schema"
+_CORE_MIGRATION: Final = "agora.core.migrations.0012_enhancement_core_schema"
+_TRANSFER_MIGRATION: Final = "agora.core.migrations.0013_ownership_transfer_invariants"
+_ANALYTICS_MIGRATION: Final = "agora.core.migrations.0014_usage_analytics_schema"
 
 
 def _load_sql(module_name: str, constant_name: str) -> str:

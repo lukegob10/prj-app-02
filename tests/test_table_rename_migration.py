@@ -65,11 +65,11 @@ class _SchemaEditor:
 
 
 def _migration() -> ModuleType:
-    return import_module("agora.persistence.migrations.0009_rename_tables_to_tb_ta")
+    return import_module("agora.core.migrations.0009_rename_tables_to_tb_ta")
 
 
 def _project_prefix_migration() -> ModuleType:
-    return import_module("agora.persistence.migrations.0010_apply_agora_project_table_prefix")
+    return import_module("agora.core.migrations.0010_apply_agora_project_table_prefix")
 
 
 def test_table_rename_migration_retargets_every_trigger() -> None:

@@ -14,7 +14,7 @@ from agora.config import (
     load_service_secret,
     validate_treasury_package,
 )
-from agora.persistence.checks import _overlaps, private_artifact_root_check
+from agora.core.checks import _overlaps, private_artifact_root_check
 from agora.settings.portal import _portal_template_loaders
 
 

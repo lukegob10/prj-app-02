@@ -24,7 +24,7 @@ from types import MappingProxyType
 from typing import BinaryIO, Final, NoReturn, cast
 from urllib.parse import unquote_to_bytes, urlsplit
 
-from agora.persistence.names import InvalidLogicalName, LogicalName, normalize_logical_name
+from agora.core.names import InvalidLogicalName, LogicalName, normalize_logical_name
 
 
 class UploadKind(StrEnum):

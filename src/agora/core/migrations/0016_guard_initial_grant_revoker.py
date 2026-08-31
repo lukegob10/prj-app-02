@@ -5,9 +5,7 @@ from typing import cast
 
 from django.db import migrations
 
-_UUID_FIX_MIGRATION = import_module(
-    "agora.persistence.migrations.0015_fix_oracle_uuid_trigger_types"
-)
+_UUID_FIX_MIGRATION = import_module("agora.core.migrations.0015_fix_oracle_uuid_trigger_types")
 ORIGINAL_GRANT_AUTHORIZATION_GUARD_SQL = cast(
     str,
     _UUID_FIX_MIGRATION.GRANT_AUTHORIZATION_GUARD_SQL,

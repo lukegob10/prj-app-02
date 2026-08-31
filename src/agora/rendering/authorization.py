@@ -13,10 +13,10 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from agora.persistence.access import active_viewer_grant, user_can_view_published
-from agora.persistence.analytics import capture_authorized_open
-from agora.persistence.enhancements import EnhancementAccessDenied
-from agora.persistence.models import (
+from agora.core.access import active_viewer_grant, user_can_view_published
+from agora.core.analytics import capture_authorized_open
+from agora.core.enhancements import EnhancementAccessDenied
+from agora.core.models import (
     AuditEvent,
     Dashboard,
     RenderAuthorization,
@@ -24,7 +24,7 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
-from agora.persistence.querying import get_one_or_none
+from agora.core.querying import get_one_or_none
 
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}", flags=re.ASCII)
 _TOKEN_BYTES = 32

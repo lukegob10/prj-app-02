@@ -4,7 +4,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseNotFound
 from django.urls import path, re_path
 
 from agora.health import content_readiness, liveness
-from agora.persistence.models import RenderAuthorization
+from agora.core.models import RenderAuthorization
 from agora.rendering.views import render_artifact, render_html
 
 

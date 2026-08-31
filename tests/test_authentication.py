@@ -15,8 +15,8 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-import agora.persistence.authentication as identity
-from agora.persistence.authentication import (
+import agora.core.authentication as identity
+from agora.core.authentication import (
     BootstrapAlreadyComplete,
     DuplicateSoeid,
     LastAdministratorError,
@@ -31,7 +31,7 @@ from agora.persistence.authentication import (
     provision_user,
     reset_user_password,
 )
-from agora.persistence.models import AuditEvent, LoginThrottle, User
+from agora.core.models import AuditEvent, LoginThrottle, User
 from agora.portal.forms import ProvisionUserForm, ResetPasswordForm
 from agora.portal.security import safe_next_url
 
@@ -107,7 +107,7 @@ def test_bootstrap_command_uses_hidden_input_and_redacts_output(
         return password
 
     monkeypatch.setattr(
-        "agora.persistence.management.commands.bootstrap_admin.getpass.getpass",
+        "agora.core.management.commands.bootstrap_admin.getpass.getpass",
         hidden_prompt,
     )
     output = io.StringIO()
@@ -125,7 +125,7 @@ def test_bootstrap_command_uses_hidden_input_and_redacts_output(
         raise AssertionError(prompt)
 
     monkeypatch.setattr(
-        "agora.persistence.management.commands.bootstrap_admin.getpass.getpass",
+        "agora.core.management.commands.bootstrap_admin.getpass.getpass",
         unexpected_prompt,
     )
     with pytest.raises(CommandError, match="before any users"):
@@ -138,7 +138,7 @@ def test_bootstrap_command_rejects_mismatch_without_creating_a_user(
     password = strong_password()
     values = iter((password, strong_password()))
     monkeypatch.setattr(
-        "agora.persistence.management.commands.bootstrap_admin.getpass.getpass",
+        "agora.core.management.commands.bootstrap_admin.getpass.getpass",
         lambda prompt: next(values),
     )
 
@@ -153,7 +153,7 @@ def test_bootstrap_command_maps_invalid_soeid_and_password_policy_errors(
     password = strong_password()
     values = iter((password, password))
     monkeypatch.setattr(
-        "agora.persistence.management.commands.bootstrap_admin.getpass.getpass",
+        "agora.core.management.commands.bootstrap_admin.getpass.getpass",
         lambda prompt: next(values),
     )
     with pytest.raises(CommandError, match="SOEID is not valid"):
@@ -162,7 +162,7 @@ def test_bootstrap_command_maps_invalid_soeid_and_password_policy_errors(
 
     values = iter(("short", "short"))
     monkeypatch.setattr(
-        "agora.persistence.management.commands.bootstrap_admin.getpass.getpass",
+        "agora.core.management.commands.bootstrap_admin.getpass.getpass",
         lambda prompt: next(values),
     )
     with pytest.raises(CommandError, match="password does not meet"):
@@ -173,13 +173,13 @@ def test_bootstrap_command_maps_invalid_soeid_and_password_policy_errors(
         raise BootstrapAlreadyComplete
 
     monkeypatch.setattr(
-        "agora.persistence.management.commands.bootstrap_admin.bootstrap_first_administrator",
+        "agora.core.management.commands.bootstrap_admin.bootstrap_first_administrator",
         race,
     )
     password = strong_password()
     values = iter((password, password))
     monkeypatch.setattr(
-        "agora.persistence.management.commands.bootstrap_admin.getpass.getpass",
+        "agora.core.management.commands.bootstrap_admin.getpass.getpass",
         lambda prompt: next(values),
     )
     with pytest.raises(CommandError, match="before any users"):

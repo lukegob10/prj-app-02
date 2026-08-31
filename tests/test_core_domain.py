@@ -16,8 +16,8 @@ from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.test import override_settings
 from django.utils import timezone
 
-import agora.persistence.services as persistence_services
-from agora.persistence.models import (
+import agora.core.services as core_services
+from agora.core.models import (
     Artifact,
     AuditEvent,
     Dashboard,
@@ -27,14 +27,14 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
-from agora.persistence.names import normalize_logical_name
-from agora.persistence.services import (
+from agora.core.names import normalize_logical_name
+from agora.core.services import (
     ArtifactPayload,
     RevisionCreationError,
     cleanup_expired_reservations,
     create_complete_revision,
 )
-from agora.persistence.storage import (
+from agora.core.storage import (
     ArtifactStorageError,
     FilesystemArtifactStorage,
     StorageCollision,
@@ -432,7 +432,7 @@ def test_metadata_failure_compensates_every_completed_file(
     def fail_commit(**kwargs: object) -> Revision:
         raise IntegrityError("simulated metadata failure")
 
-    monkeypatch.setattr(persistence_services, "_commit_revision_metadata", fail_commit)
+    monkeypatch.setattr(core_services, "_commit_revision_metadata", fail_commit)
     with pytest.raises(IntegrityError, match="metadata failure"):
         create_revision(dashboard, owner, storage)
 
@@ -514,9 +514,7 @@ def test_storage_reservation_retries_both_metadata_collision_types(
     revision = create_revision(dashboard, owner, storage)
     owned_key = StorageKey(revision.artifacts.get(kind=Artifact.Kind.HTML).storage_key)
     with pytest.raises(RevisionCreationError, match="unique artifact storage key"):
-        persistence_services._reserve_storage_key(
-            FixedKeyStorage(tmp_path / "owned-key", owned_key)
-        )
+        core_services._reserve_storage_key(FixedKeyStorage(tmp_path / "owned-key", owned_key))
 
     reserved_key = StorageKey.generate()
     StorageReservation.objects.create(
@@ -524,9 +522,7 @@ def test_storage_reservation_retries_both_metadata_collision_types(
         expires_at=timezone.now() + timedelta(hours=1),
     )
     with pytest.raises(RevisionCreationError, match="unique artifact storage key"):
-        persistence_services._reserve_storage_key(
-            FixedKeyStorage(tmp_path / "reserved-key", reserved_key)
-        )
+        core_services._reserve_storage_key(FixedKeyStorage(tmp_path / "reserved-key", reserved_key))
 
 
 def test_service_collision_preserves_bytes_owned_by_another_attempt(
@@ -568,12 +564,12 @@ def test_collision_bytes_survive_failed_compensation_and_expiry(
         del storage_arg, reservations
 
     monkeypatch.setattr(
-        persistence_services,
+        core_services,
         "_mark_reservation_collision",
         fail_collision_witness,
     )
     monkeypatch.setattr(
-        persistence_services,
+        core_services,
         "_cleanup_unowned",
         lose_immediate_compensation,
     )
@@ -593,7 +589,7 @@ def test_collision_bytes_survive_failed_compensation_and_expiry(
     )
 
     reservation.refresh_from_db()
-    assert result == persistence_services.CleanupResult(removed=0, retained=1)
+    assert result == core_services.CleanupResult(removed=0, retained=1)
     assert reservation.cleanup_required is True
     with storage.open(key) as stream:
         assert stream.read() == b"pre-existing bytes"
@@ -605,13 +601,13 @@ def test_commit_response_ambiguity_never_deletes_committed_artifacts(
     storage: FilesystemArtifactStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original_commit = persistence_services._commit_revision_metadata
+    original_commit = core_services._commit_revision_metadata
 
     def commit_then_lose_response(
         *,
         dashboard_id: uuid.UUID,
         created_by_id: uuid.UUID,
-        prepared: Sequence[persistence_services._PreparedArtifact],
+        prepared: Sequence[core_services._PreparedArtifact],
     ) -> Revision:
         original_commit(
             dashboard_id=dashboard_id,
@@ -621,7 +617,7 @@ def test_commit_response_ambiguity_never_deletes_committed_artifacts(
         raise DatabaseError("simulated lost commit response")
 
     monkeypatch.setattr(
-        persistence_services,
+        core_services,
         "_commit_revision_metadata",
         commit_then_lose_response,
     )
@@ -645,7 +641,7 @@ def test_reservation_receipt_must_match_its_key() -> None:
     receipt = StoredArtifact(key=other_key, byte_size=0, sha256=hashlib.sha256(b"").hexdigest())
 
     with pytest.raises(RevisionCreationError, match="did not match"):
-        persistence_services._mark_reservation_verified(reservation.id, receipt)
+        core_services._mark_reservation_verified(reservation.id, receipt)
 
 
 def test_storage_reservation_identity_and_verified_receipt_are_one_way() -> None:
@@ -690,14 +686,14 @@ def test_storage_reservation_identity_and_verified_receipt_are_one_way() -> None
 
 def prepared_artifact(
     *, reservation_id: uuid.UUID, key: StorageKey, verified: bool = True
-) -> persistence_services._PreparedArtifact:
+) -> core_services._PreparedArtifact:
     content = b"<html></html>"
     receipt = StoredArtifact(
         key=key,
         byte_size=len(content),
         sha256=hashlib.sha256(content).hexdigest(),
     )
-    item = persistence_services._PreparedArtifact(
+    item = core_services._PreparedArtifact(
         reservation_id=reservation_id,
         name=normalize_logical_name("dashboard.html"),
         payload=payload(Artifact.Kind.HTML, "dashboard.html", content),
@@ -716,7 +712,7 @@ def test_metadata_commit_rechecks_owner_reservation_and_key_ownership(
     storage: FilesystemArtifactStorage,
 ) -> None:
     with pytest.raises(RevisionCreationError, match="must own"):
-        persistence_services._commit_revision_metadata(
+        core_services._commit_revision_metadata(
             dashboard_id=dashboard.id,
             created_by_id=viewer.id,
             prepared=(),
@@ -725,7 +721,7 @@ def test_metadata_commit_rechecks_owner_reservation_and_key_ownership(
     missing_key = StorageKey.generate()
     missing = prepared_artifact(reservation_id=uuid.uuid4(), key=missing_key)
     with pytest.raises(RevisionCreationError, match="reservation is missing"):
-        persistence_services._commit_revision_metadata(
+        core_services._commit_revision_metadata(
             dashboard_id=dashboard.id,
             created_by_id=owner.id,
             prepared=(missing,),
@@ -740,7 +736,7 @@ def test_metadata_commit_rechecks_owner_reservation_and_key_ownership(
         reservation_id=unverified_reservation.id, key=unverified_key, verified=False
     )
     with pytest.raises(RevisionCreationError, match="not verified"):
-        persistence_services._commit_revision_metadata(
+        core_services._commit_revision_metadata(
             dashboard_id=dashboard.id,
             created_by_id=owner.id,
             prepared=(unverified,),
@@ -756,7 +752,7 @@ def test_metadata_commit_rechecks_owner_reservation_and_key_ownership(
         verified_size=artifact.byte_size,
         verified_sha256=artifact.sha256,
     )
-    owned = persistence_services._PreparedArtifact(
+    owned = core_services._PreparedArtifact(
         reservation_id=owned_reservation.id,
         name=normalize_logical_name(artifact.logical_name),
         payload=payload(Artifact.Kind.HTML, artifact.logical_name, b"<html>safe bytes</html>"),
@@ -768,7 +764,7 @@ def test_metadata_commit_rechecks_owner_reservation_and_key_ownership(
         media_type="text/html",
     )
     with pytest.raises(RevisionCreationError, match="already owned"):
-        persistence_services._commit_revision_metadata(
+        core_services._commit_revision_metadata(
             dashboard_id=dashboard.id,
             created_by_id=owner.id,
             prepared=(owned,),
@@ -790,13 +786,13 @@ def test_failure_cleanup_retains_database_ownership_when_checks_or_delete_fail(
         "filter",
         lambda *args, **kwargs: (_ for _ in ()).throw(DatabaseError("database unavailable")),
     )
-    candidate = persistence_services._CleanupCandidate(reservation.id, key, owns_bytes=True)
-    persistence_services._cleanup_unowned(storage, (candidate,))
+    candidate = core_services._CleanupCandidate(reservation.id, key, owns_bytes=True)
+    core_services._cleanup_unowned(storage, (candidate,))
     assert StorageReservation.objects.filter(id=reservation.id).exists()
     monkeypatch.undo()
 
     failing = DeleteFailingStorage(tmp_path / "private")
-    persistence_services._cleanup_unowned(failing, (candidate,))
+    core_services._cleanup_unowned(failing, (candidate,))
     reservation.refresh_from_db()
     assert reservation.cleanup_required is True
 
@@ -827,7 +823,7 @@ def test_expired_cleanup_is_idempotent_and_retains_failed_work(tmp_path: Path) -
     second = cleanup_expired_reservations(storage)
     third = cleanup_expired_reservations(storage)
     assert second.removed == 1
-    assert third == persistence_services.CleanupResult(removed=0, retained=0)
+    assert third == core_services.CleanupResult(removed=0, retained=0)
     with pytest.raises(FileNotFoundError):
         with storage.open(key):
             pass
@@ -857,7 +853,7 @@ def test_expired_cleanup_retains_reservation_when_path_inspection_fails(
     result = cleanup_expired_reservations(storage)
 
     reservation.refresh_from_db()
-    assert result == persistence_services.CleanupResult(removed=0, retained=1)
+    assert result == core_services.CleanupResult(removed=0, retained=1)
     assert reservation.cleanup_required is True
 
 

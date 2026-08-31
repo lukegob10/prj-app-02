@@ -19,8 +19,8 @@ from django.core.exceptions import ValidationError
 from django.db.models import Model, QuerySet, Subquery
 from django.utils import timezone
 
-from agora.persistence import analytics, enhancements
-from agora.persistence.analytics import (
+from agora.core import analytics, enhancements
+from agora.core.analytics import (
     aggregate_authorized_opens,
     capture_authorized_open,
     dashboard_daily_authorized_opens,
@@ -28,7 +28,7 @@ from agora.persistence.analytics import (
     popular_authorized_dashboard_snapshots,
     purge_authorized_opens,
 )
-from agora.persistence.enhancement_queries import (
+from agora.core.enhancement_queries import (
     dashboard_tags,
     dashboards_by_tag_key,
     pending_access_requests,
@@ -36,7 +36,7 @@ from agora.persistence.enhancement_queries import (
     recently_viewed_dashboards,
     stale_owned_dashboards,
 )
-from agora.persistence.enhancements import (
+from agora.core.enhancements import (
     EnhancementAccessDenied,
     EnhancementValidationError,
     confirm_dashboard_freshness,
@@ -49,7 +49,7 @@ from agora.persistence.enhancements import (
     set_dashboard_favorite,
     transfer_dashboard_ownership,
 )
-from agora.persistence.models import (
+from agora.core.models import (
     AccessRequest,
     AnalyticsPipelineCheckpoint,
     Artifact,
@@ -68,12 +68,12 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
-from agora.persistence.services import (
+from agora.core.services import (
     ArtifactPayload,
     RevisionCreationError,
     create_complete_revision,
 )
-from agora.persistence.storage import FilesystemArtifactStorage
+from agora.core.storage import FilesystemArtifactStorage
 from agora.rendering.authorization import (
     RenderAuthorizationDenied,
     RenderAuthorizationUnavailable,

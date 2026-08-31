@@ -9,7 +9,7 @@ from uuid import UUID
 
 from django.db.models import BooleanField, Case, Exists, F, OuterRef, Q, QuerySet, Subquery, When
 
-from agora.persistence.models import (
+from agora.core.models import (
     AccessRequest,
     Dashboard,
     DashboardFavorite,
@@ -17,7 +17,7 @@ from agora.persistence.models import (
     DashboardViewerState,
     ViewerGrant,
 )
-from agora.persistence.names import InvalidDashboardTag, normalize_dashboard_tag
+from agora.core.names import InvalidDashboardTag, normalize_dashboard_tag
 
 DEFAULT_PAGE_LIMIT: Final = 25
 MAX_PAGE_LIMIT: Final = 100

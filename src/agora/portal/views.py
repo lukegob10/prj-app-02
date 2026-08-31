@@ -17,14 +17,14 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_POST
 
-from agora.persistence.access import (
+from agora.core.access import (
     GrantRejection,
     GrantViewerRejected,
     ProjectAccessDenied,
     grant_project_viewer,
     revoke_project_viewer,
 )
-from agora.persistence.authentication import (
+from agora.core.authentication import (
     DuplicateSoeid,
     LastAdministratorError,
     NotAdministrator,
@@ -38,16 +38,16 @@ from agora.persistence.authentication import (
     record_logout,
     reset_user_password,
 )
-from agora.persistence.enhancements import EnhancementAccessDenied, request_dashboard_access
-from agora.persistence.models import Dashboard, DashboardFavorite, Revision, User
-from agora.persistence.pagination import (
+from agora.core.enhancements import EnhancementAccessDenied, request_dashboard_access
+from agora.core.models import Dashboard, DashboardFavorite, Revision, User
+from agora.core.pagination import (
     CursorColumn,
     CursorPage,
     CursorValueKind,
     InvalidCursor,
     paginate_keyset,
 )
-from agora.persistence.projects import (
+from agora.core.projects import (
     ProjectOwnerUnavailable,
     ProjectRenameDenied,
     create_project,
@@ -60,10 +60,10 @@ from agora.persistence.projects import (
     rename_project,
     visible_project,
 )
-from agora.persistence.querying import administrator_user_list
-from agora.persistence.services import RevisionCreationError
-from agora.persistence.storage import ArtifactStorageError, FilesystemArtifactStorage
-from agora.persistence.uploads import create_upload_revision
+from agora.core.querying import administrator_user_list
+from agora.core.services import RevisionCreationError
+from agora.core.storage import ArtifactStorageError, FilesystemArtifactStorage
+from agora.core.uploads import create_upload_revision
 from agora.rendering.authorization import (
     RenderAuthorizationDenied,
     RenderAuthorizationUnavailable,

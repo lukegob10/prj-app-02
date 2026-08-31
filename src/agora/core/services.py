@@ -12,7 +12,7 @@ from typing import Final
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
-from agora.persistence.models import (
+from agora.core.models import (
     ARTIFACT_MEDIA_TYPES,
     Artifact,
     AuditEvent,
@@ -21,9 +21,9 @@ from agora.persistence.models import (
     StorageReservation,
     User,
 )
-from agora.persistence.names import LogicalName, normalize_logical_name
-from agora.persistence.querying import get_one_or_none
-from agora.persistence.storage import (
+from agora.core.names import LogicalName, normalize_logical_name
+from agora.core.querying import get_one_or_none
+from agora.core.storage import (
     ArtifactStorage,
     ArtifactStorageError,
     StorageCleanupRequired,

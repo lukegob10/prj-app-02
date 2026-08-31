@@ -47,7 +47,7 @@ class _TriggerMigration(Protocol):
 
 _TRIGGERS = cast(
     _TriggerMigration,
-    import_module("agora.persistence.migrations.0009_rename_tables_to_tb_ta"),
+    import_module("agora.core.migrations.0009_rename_tables_to_tb_ta"),
 )
 
 

@@ -8,8 +8,8 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Prefetch, QuerySet, prefetch_related_objects
 
-from agora.persistence.models import Artifact, AuditEvent, Dashboard, Revision, User, ViewerGrant
-from agora.persistence.querying import get_one_or_none
+from agora.core.models import Artifact, AuditEvent, Dashboard, Revision, User, ViewerGrant
+from agora.core.querying import get_one_or_none
 
 
 class ProjectOwnerUnavailable(RuntimeError):

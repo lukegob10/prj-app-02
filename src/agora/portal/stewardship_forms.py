@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from django import forms
 
-from agora.persistence.enhancements import MAX_ACCESS_REQUEST_MESSAGE_LENGTH
-from agora.persistence.names import InvalidSoeid, canonicalize_soeid
+from agora.core.enhancements import MAX_ACCESS_REQUEST_MESSAGE_LENGTH
+from agora.core.names import InvalidSoeid, canonicalize_soeid
 
 
 class DashboardAccessRequestForm(forms.Form):

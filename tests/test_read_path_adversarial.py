@@ -10,7 +10,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from agora.persistence.models import Dashboard, RenderAuthorization, Revision, User, ViewerGrant
+from agora.core.models import Dashboard, RenderAuthorization, Revision, User, ViewerGrant
 
 pytestmark = pytest.mark.django_db(transaction=True)
 

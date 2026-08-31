@@ -11,7 +11,7 @@ from django.utils import timezone
 
 _PRE_ENHANCEMENT_MIGRATION = cast(
     Any,
-    import_module("agora.persistence.migrations.0005_harden_domain_invariants"),
+    import_module("agora.core.migrations.0005_harden_domain_invariants"),
 )
 PRE_ENHANCEMENT_DASHBOARD_GUARD_SQL: str = str(_PRE_ENHANCEMENT_MIGRATION.FORWARD_SQL[2]).replace(
     "persistence_dashboard", "TB_TA_AGORA_DASHBOARD"

@@ -6,13 +6,13 @@ import getpass
 
 from django.core.management.base import BaseCommand, CommandError
 
-from agora.persistence.authentication import (
+from agora.core.authentication import (
     BootstrapAlreadyComplete,
     PasswordPolicyError,
     bootstrap_first_administrator,
 )
-from agora.persistence.models import User
-from agora.persistence.names import InvalidSoeid
+from agora.core.models import User
+from agora.core.names import InvalidSoeid
 
 
 class Command(BaseCommand):

@@ -5,7 +5,7 @@ import uuid
 import django.db.models.deletion
 from django.db import migrations, models
 
-import agora.persistence.models
+import agora.core.models
 
 
 class Migration(migrations.Migration):
@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
                 ],
             },
             managers=[
-                ("objects", agora.persistence.models.UserManager()),
+                ("objects", agora.core.models.UserManager()),
             ],
         ),
         migrations.CreateModel(

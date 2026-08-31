@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from agora.persistence.names import (
+from agora.core.names import (
     InvalidLogicalName,
     InvalidSoeid,
     canonicalize_soeid,

@@ -13,8 +13,8 @@ from django.db.models import Model, QuerySet, Subquery
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-import agora.persistence.discovery as discovery
-from agora.persistence.discovery import (
+import agora.core.discovery as discovery
+from agora.core.discovery import (
     DISCOVERY_CURSOR_COLUMNS,
     DISCOVERY_CURSOR_NAMESPACE,
     DiscoveryScope,
@@ -26,7 +26,7 @@ from agora.persistence.discovery import (
     recently_viewed_dashboards,
     search_dashboards,
 )
-from agora.persistence.models import (
+from agora.core.models import (
     Artifact,
     AuditEvent,
     AuthorizedOpen,
@@ -38,7 +38,7 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
-from agora.persistence.pagination import InvalidCursor, paginate_keyset
+from agora.core.pagination import InvalidCursor, paginate_keyset
 
 pytestmark = pytest.mark.django_db
 

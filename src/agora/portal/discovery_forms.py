@@ -7,8 +7,8 @@ from typing import Final
 
 from django import forms
 
-from agora.persistence.enhancements import MAX_EFFECTIVE_TAGS
-from agora.persistence.names import InvalidDashboardTag, normalize_dashboard_tag
+from agora.core.enhancements import MAX_EFFECTIVE_TAGS
+from agora.core.names import InvalidDashboardTag, normalize_dashboard_tag
 
 _SEARCH_MAX_LENGTH: Final = 200
 _TAG_FIELD_NAMES: Final = tuple(f"tag_{slot}" for slot in range(1, MAX_EFFECTIVE_TAGS + 1))

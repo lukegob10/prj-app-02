@@ -8,9 +8,9 @@ from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from agora.persistence.models import AuditEvent, Dashboard, Revision, User, ViewerGrant
-from agora.persistence.storage import FilesystemArtifactStorage
-from agora.persistence.uploads import create_upload_revision
+from agora.core.models import AuditEvent, Dashboard, Revision, User, ViewerGrant
+from agora.core.storage import FilesystemArtifactStorage
+from agora.core.uploads import create_upload_revision
 from agora.uploads import UploadPart
 
 pytestmark = pytest.mark.django_db(transaction=True)

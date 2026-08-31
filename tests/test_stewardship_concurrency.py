@@ -16,13 +16,13 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from agora.persistence.enhancements import (
+from agora.core.enhancements import (
     EnhancementAccessDenied,
     request_dashboard_access,
     resolve_dashboard_access_request,
     transfer_dashboard_ownership,
 )
-from agora.persistence.models import (
+from agora.core.models import (
     AccessRequest,
     Artifact,
     AuditEvent,
@@ -32,8 +32,8 @@ from agora.persistence.models import (
     User,
     ViewerGrant,
 )
-from agora.persistence.pagination import CursorPage
-from agora.persistence.storage import StorageKey
+from agora.core.pagination import CursorPage
+from agora.core.storage import StorageKey
 from agora.rendering.authorization import (
     RenderAuthorizationDenied,
     issue_owner_preview,

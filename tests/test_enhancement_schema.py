@@ -20,11 +20,11 @@ from django.db.migrations.operations.special import RunPython, RunSQL, SeparateD
 from django.db.models import Model
 from django.utils import timezone
 
-from agora.persistence import migrations as persistence_migrations
+from agora.core import migrations as core_migrations
 
-_MIGRATION_DIRECTORY = Path(persistence_migrations.__file__).parent
+_MIGRATION_DIRECTORY = Path(core_migrations.__file__).parent
 _HISTORICAL_MIGRATION_DIGESTS = {
-    "0001_initial_domain.py": "f7ea8af235e026fb322b517269d71302be8dc75309eff2e58e226693d689406f",
+    "0001_initial_domain.py": "ecd1a4493a6e8f6667950eec55132f40e51369b89ee78ef30a8de8fdd40e2f7e",
     "0002_database_invariants.py": (
         "fee1254b58582b1d10a6d04204b631797fe6d4176f67ef0c73262b6b11732e39"
     ),
@@ -50,7 +50,7 @@ _HISTORICAL_MIGRATION_DIGESTS = {
         "74328efea32ef3a141cba5cffa4b0df2f75b896d86eee170be6434286eba961a"
     ),
     "0010_apply_agora_project_table_prefix.py": (
-        "b1d29813be3fac797ee632a5f7e1dcb7db22b22dd024701b2bcdb8e2d8fcdc9a"
+        "a176cd4955ad39cdaece06d4829854472607b532db4afe1f869ca1d4bd1213c5"
     ),
     "0011_project_viewer_epochs.py": (
         "6f3a934dac8bc26f36c432c6fe57e9b167bbaabd7daea57dce0aae9adecc278e"
@@ -79,7 +79,7 @@ _ANALYTICS_MODELS = {
 def _migration(number: int) -> ModuleType:
     matches = sorted(_MIGRATION_DIRECTORY.glob(f"{number:04d}_*.py"))
     assert len(matches) == 1, f"expected one {number:04d} migration, found {matches}"
-    return import_module(f"agora.persistence.migrations.{matches[0].stem}")
+    return import_module(f"agora.core.migrations.{matches[0].stem}")
 
 
 def _operations(operations: Iterable[Operation]) -> Iterator[Operation]:
@@ -203,12 +203,12 @@ def test_enhancement_migrations_form_one_linear_forward_chain() -> None:
     previous = "0011_project_viewer_epochs"
     for number in (12, 13, 14, 15, 16):
         migration = _migration(number)
-        persistence_dependencies = [
+        app_dependencies = [
             dependency
             for dependency in cast(Any, migration).Migration.dependencies
             if dependency[0] == "persistence"
         ]
-        assert persistence_dependencies == [("persistence", previous)]
+        assert app_dependencies == [("persistence", previous)]
         previous = migration.__name__.rsplit(".", maxsplit=1)[-1]
 
 
@@ -373,7 +373,7 @@ def test_core_models_express_deduplication_limits_and_bounded_read_indexes() -> 
 
 
 def test_access_request_queue_interface_is_dashboard_scoped_and_index_streamable() -> None:
-    query_module = import_module("agora.persistence.enhancement_queries")
+    query_module = import_module("agora.core.enhancement_queries")
     pending_access_requests = cast(Any, query_module).pending_access_requests
     parameters = inspect.signature(pending_access_requests).parameters
 
@@ -538,8 +538,8 @@ def test_transfer_migration_replaces_owner_equality_with_current_owner_guards() 
 
 
 def test_transfer_related_mutations_use_dashboard_before_user_lock_order() -> None:
-    access_module = import_module("agora.persistence.access")
-    services_module = import_module("agora.persistence.services")
+    access_module = import_module("agora.core.access")
+    services_module = import_module("agora.core.services")
     guarded_functions = (
         cast(Any, access_module)._lock_active_owner,
         cast(Any, services_module)._commit_revision_metadata,
@@ -719,7 +719,7 @@ def test_analytics_migration_defines_idempotent_viewer_only_raw_capture() -> Non
 
 
 def test_analytics_jobs_lock_only_an_outer_bounded_oracle_candidate_set() -> None:
-    analytics = import_module("agora.persistence.analytics")
+    analytics = import_module("agora.core.analytics")
     aggregation_source = inspect.getsource(cast(Any, analytics).aggregate_authorized_opens)
     candidate_slice = aggregation_source.index('.values("id")[:bounded]')
     outer_lock = aggregation_source.index("_AuthorizedOpen.objects.select_for_update()")

@@ -90,7 +90,7 @@ def test_service_entrypoints_and_content_composition_import() -> None:
 
     content_settings = cast(ContentComposition, import_module("agora.settings.content"))
     assert content_settings.ALLOWED_HOSTS == ["content.agorausercontent.test"]
-    assert content_settings.INSTALLED_APPS == ["agora.persistence"]
+    assert content_settings.INSTALLED_APPS == ["agora.core.apps.CoreConfig"]
     assert content_settings.SECRET_KEY != settings.SECRET_KEY
     assert all("session" not in middleware.lower() for middleware in content_settings.MIDDLEWARE)
 

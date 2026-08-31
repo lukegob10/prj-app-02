@@ -5,7 +5,7 @@ from __future__ import annotations
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Model, QuerySet
 
-from agora.persistence.models import User
+from agora.core.models import User
 
 
 def get_one_or_none[ModelT: Model](queryset: QuerySet[ModelT]) -> ModelT | None:

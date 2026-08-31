@@ -85,9 +85,11 @@ def test_artifact_contains_all_final_agora_and_framework_tables() -> None:
         "TB_TA_AGORA_DJANGO_SESSION",
         "TB_TA_AGORA_DJANGO_MIGRATIONS",
     }
-    actual_tables = set(re.findall(r'CREATE TABLE "([A-Z0-9_$#]+)"', sql))
+    actual_table_targets = re.findall(r'CREATE TABLE "([A-Z0-9_$#]+)"', sql)
     assert len(expected_tables) == 25
-    assert actual_tables == expected_tables
+    assert len(actual_table_targets) == 25
+    assert len(set(actual_table_targets)) == 25
+    assert set(actual_table_targets) == expected_tables
 
 
 def test_artifact_carries_forward_migration_owned_oracle_objects() -> None:
@@ -160,6 +162,8 @@ def test_artifact_is_utf8_lf_and_defers_foreign_keys_after_tables() -> None:
     first_foreign_key = sql.find(" FOREIGN KEY ")
     assert last_create_table >= 0
     assert first_foreign_key > last_create_table
+    assert sql.count(" FOREIGN KEY ") == 45
+    assert len(re.findall(r"(?im)^CREATE (?:UNIQUE )?INDEX ", sql)) == 69
 
 
 def test_identity_tables_match_django_oracle_backend_behavior() -> None:
@@ -200,6 +204,50 @@ def test_known_migration_objects_have_no_duplicate_names() -> None:
         sql,
     )
     assert len(names) == len(set(names))
+
+
+def test_render_restores_wrapper_recorder_and_runtime_model_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from django.contrib.auth.models import Group
+    from django.db import connections
+    from django.db.migrations.recorder import MigrationRecorder
+
+    connection = connections["default"]
+    operators_sentinel = object()
+    pattern_ops_sentinel = object()
+    monkeypatch.setitem(connection.__dict__, "operators", operators_sentinel)
+    monkeypatch.setitem(connection.__dict__, "pattern_ops", pattern_ops_sentinel)
+    wrapper_before = {
+        name: (name in connection.__dict__, connection.__dict__.get(name))
+        for name in ("operators", "pattern_ops")
+    }
+    recorder_before = MigrationRecorder.Migration._meta.db_table
+    runtime_through = Group.permissions.through
+    runtime_through_before = runtime_through._meta.db_table
+    environment_before = dict(os.environ)
+
+    render_schema()
+    render_schema()
+
+    def assert_restored() -> None:
+        for name, (present, value) in wrapper_before.items():
+            assert (name in connection.__dict__) is present
+            if present:
+                assert connection.__dict__[name] is value
+        assert MigrationRecorder.Migration._meta.db_table == recorder_before
+        assert runtime_through._meta.db_table == runtime_through_before
+        assert dict(os.environ) == environment_before
+
+    assert_restored()
+
+    def fail_formatting(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("synthetic formatting failure")
+
+    monkeypatch.setattr(generate_oracle_schema, "_format_custom_sql", fail_formatting)
+    with pytest.raises(RuntimeError, match="synthetic formatting failure"):
+        render_schema()
+    assert_restored()
 
 
 def test_unknown_runpython_fails_closed() -> None:
@@ -249,3 +297,22 @@ def test_check_mode_is_mutation_free_and_uses_the_stable_contract() -> None:
         "Oracle schema artifact is up to date: database/oracle/schema.sql"
     )
     assert _SCHEMA.read_bytes() == before
+
+
+def test_check_mode_rejects_stale_artifact_without_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stale_artifact = tmp_path / "schema.sql"
+    stale_artifact.write_bytes(b"stale\n")
+    before = stale_artifact.read_bytes()
+    monkeypatch.setattr(generate_oracle_schema, "_SCHEMA_PATH", stale_artifact)
+
+    assert generate_oracle_schema.main(["--check"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.strip() == (
+        "Oracle schema artifact is out of date; run "
+        "uv run --locked python scripts/generate_oracle_schema.py"
+    )
+    assert stale_artifact.read_bytes() == before

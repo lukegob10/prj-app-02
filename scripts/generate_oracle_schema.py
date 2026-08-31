@@ -98,6 +98,41 @@ class RawSqlObjects:
     skipped: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ConnectionOperatorState:
+    """Process-local Oracle wrapper attributes that offline rendering temporarily replaces."""
+
+    operators_present: bool
+    operators: Any
+    pattern_ops_present: bool
+    pattern_ops: Any
+
+
+def _snapshot_connection_operator_state(connection: Any) -> ConnectionOperatorState:
+    attributes = connection.__dict__
+    return ConnectionOperatorState(
+        operators_present="operators" in attributes,
+        operators=attributes.get("operators"),
+        pattern_ops_present="pattern_ops" in attributes,
+        pattern_ops=attributes.get("pattern_ops"),
+    )
+
+
+def _restore_connection_operator_state(
+    connection: Any,
+    state: ConnectionOperatorState,
+) -> None:
+    attributes = connection.__dict__
+    if state.operators_present:
+        attributes["operators"] = state.operators
+    else:
+        attributes.pop("operators", None)
+    if state.pattern_ops_present:
+        attributes["pattern_ops"] = state.pattern_ops
+    else:
+        attributes.pop("pattern_ops", None)
+
+
 def _prepare_offline_settings() -> None:
     """Provide deterministic settings before importing Django's settings module."""
 
@@ -105,7 +140,7 @@ def _prepare_offline_settings() -> None:
     os.environ["DJANGO_SETTINGS_MODULE"] = _DJANGO_SETTINGS_MODULE
 
 
-def _load_django() -> tuple[Any, Any, Any, Any]:
+def _load_django() -> tuple[Any, Any, Any, Any, ConnectionOperatorState]:
     """Initialize Django and return the loaded migration graph, final state, and connection."""
 
     # Importing Django's Oracle backend may set NLS_LANG and ORA_NCHAR_LITERAL_REPLACE as well as
@@ -123,13 +158,18 @@ def _load_django() -> tuple[Any, Any, Any, Any]:
         loader = MigrationLoader(None, replace_migrations=False)
         state = loader.project_state()
         connection = connections["default"]
+        connection_state = _snapshot_connection_operator_state(connection)
 
         # Oracle's operators descriptor probes a live connection the first time a check constraint
         # is compiled.  The standard operators are stable backend constants and are sufficient for
         # SQL rendering; assigning them is what makes schema_editor(collect_sql=True) truly offline.
-        connection.operators = connection._standard_operators
-        connection.pattern_ops = connection._standard_pattern_ops
-        return loader, state, connection, django
+        try:
+            connection.operators = connection._standard_operators
+            connection.pattern_ops = connection._standard_pattern_ops
+        except BaseException:
+            _restore_connection_operator_state(connection, connection_state)
+            raise
+        return loader, state, connection, django, connection_state
     finally:
         os.environ.clear()
         os.environ.update(original_environment)
@@ -356,17 +396,21 @@ def _create_model_sql(state: Any, connection: Any) -> tuple[str, ...]:
     permissions_through = permissions_field.remote_field.through
     permissions_through._meta.db_table = "TB_TA_AGORA_AUTH_GROUP_PERMISSIONS"
 
-    MigrationRecorder.Migration._meta.db_table = "tb_ta_agora_django_migrations"
-    models = list(state.apps.get_models())
-    models.append(MigrationRecorder.Migration)
+    recorder_table = MigrationRecorder.Migration._meta.db_table
+    try:
+        MigrationRecorder.Migration._meta.db_table = "tb_ta_agora_django_migrations"
+        models = list(state.apps.get_models())
+        models.append(MigrationRecorder.Migration)
 
-    statements: list[str] = []
-    with connection.schema_editor(collect_sql=True, atomic=False) as schema_editor:
-        for model in models:
-            if model._meta.can_migrate(connection):
-                schema_editor.create_model(model)
-    statements.extend(schema_editor.collected_sql)
-    return tuple(_normalise_sql(statement) for statement in statements)
+        statements: list[str] = []
+        with connection.schema_editor(collect_sql=True, atomic=False) as schema_editor:
+            for model in models:
+                if model._meta.can_migrate(connection):
+                    schema_editor.create_model(model)
+        statements.extend(schema_editor.collected_sql)
+        return tuple(_normalise_sql(statement) for statement in statements)
+    finally:
+        MigrationRecorder.Migration._meta.db_table = recorder_table
 
 
 def _format_custom_sql(entry: RawSqlEntry) -> str:
@@ -385,51 +429,60 @@ def _format_custom_sql(entry: RawSqlEntry) -> str:
 def render_schema() -> str:
     """Return the deterministic final schema artifact contents."""
 
-    loader, state, connection, django = _load_django()
-    keys = _ordered_migration_keys(loader)
-    raw = _collect_raw_sql(loader, state, keys)
-    generated_sql = _create_model_sql(state, connection)
+    from django.apps import apps as django_apps
 
-    lines = [
-        "-- Agora Oracle schema artifact (generated; do not edit by hand).",
-        "-- Source of truth: Django migrations; this file is a reproducible final-state DDL view.",
-        "-- Generator: uv run --locked python scripts/generate_oracle_schema.py",
-        "-- Backend: agora.db.backends.treasury_oracle (Django Oracle schema editor).",
-        f"-- Django version: {django.get_version()} (pyproject constraint >=5.2.17,<5.3).",
-        "-- Generation is offline: no Oracle connection, credentials, or data migrations are used.",
-        "-- Tables, identities, model constraints, foreign keys, and model indexes come directly",
-        "-- from the final ProjectState; migration-owned Oracle SQL follows below.",
-        "-- Run Django migrations for upgrades/data backfills; do not edit this artifact as a",
-        "-- second source of truth. Re-run the generator after changing migrations.",
-        "-- Canonical application package may move to agora.core; Django app/migration label stays",
-        "-- persistence for migration identity and historical dependency resolution.",
-        "",
-        "-- Installed apps without migrations (and therefore without schema objects):",
-        "--   " + ", ".join(sorted(loader.unmigrated_apps)),
-        "",
-        "-- Final migration graph:",
-    ]
-    lines.extend(f"--   {_migration_label(key)}" for key in keys)
-    lines.extend(
-        [
+    loader, state, connection, django, connection_state = _load_django()
+    try:
+        application_config = django_apps.get_app_config("persistence")
+        keys = _ordered_migration_keys(loader)
+        raw = _collect_raw_sql(loader, state, keys)
+        generated_sql = _create_model_sql(state, connection)
+
+        lines = [
+            "-- Agora Oracle schema artifact (generated; do not edit by hand).",
+            "-- Source of truth: Django migrations; this file is a reproducible final-state",
+            "-- DDL view.",
+            "-- Generator: uv run --locked python scripts/generate_oracle_schema.py",
+            "-- Backend: agora.db.backends.treasury_oracle (Django Oracle schema editor).",
+            f"-- Django version: {django.get_version()} (pyproject constraint >=5.2.17,<5.3).",
+            "-- Generation is offline: no Oracle connection, credentials, or data migrations",
+            "-- are used.",
+            "-- Tables, identities, model constraints, foreign keys, and model indexes",
+            "-- come directly from the final ProjectState; migration-owned Oracle SQL",
+            "-- follows below.",
+            "-- Run Django migrations for upgrades/data backfills; do not edit this artifact as a",
+            "-- second source of truth. Re-run the generator after changing migrations.",
+            f"-- Application package: {application_config.name}; stable Django app label: "
+            f"{application_config.label}.",
             "",
-            "-- Django final-state schema (tables, identity columns, constraints, foreign keys,",
-            "-- indexes).",
+            "-- Installed apps without migrations (and therefore without schema objects):",
+            "--   " + ", ".join(sorted(loader.unmigrated_apps)),
+            "",
+            "-- Final migration graph:",
         ]
-    )
-    lines.extend(generated_sql)
-    lines.extend(["", "-- Migration-owned Oracle constraints."])
-    lines.extend(_format_custom_sql(entry) for entry in raw.constraints)
-    lines.extend(["", "-- Migration-owned Oracle function-based indexes."])
-    lines.extend(_format_custom_sql(entry) for entry in raw.indexes)
-    lines.extend(["", "-- Migration-owned Oracle triggers."])
-    lines.extend(_format_custom_sql(entry) for entry in raw.triggers)
-    lines.extend(
-        ["", "-- Explicitly deferred operations (handled by Django migrations during upgrade):"]
-    )
-    lines.extend(f"--   {item}" for item in raw.skipped)
-    lines.append("")
-    return "\n".join(lines)
+        lines.extend(f"--   {_migration_label(key)}" for key in keys)
+        lines.extend(
+            [
+                "",
+                "-- Django final-state schema (tables, identity columns, constraints,",
+                "-- foreign keys, and indexes).",
+            ]
+        )
+        lines.extend(generated_sql)
+        lines.extend(["", "-- Migration-owned Oracle constraints."])
+        lines.extend(_format_custom_sql(entry) for entry in raw.constraints)
+        lines.extend(["", "-- Migration-owned Oracle function-based indexes."])
+        lines.extend(_format_custom_sql(entry) for entry in raw.indexes)
+        lines.extend(["", "-- Migration-owned Oracle triggers."])
+        lines.extend(_format_custom_sql(entry) for entry in raw.triggers)
+        lines.extend(
+            ["", "-- Explicitly deferred operations (handled by Django migrations during upgrade):"]
+        )
+        lines.extend(f"--   {item}" for item in raw.skipped)
+        lines.append("")
+        return "\n".join(lines)
+    finally:
+        _restore_connection_operator_state(connection, connection_state)
 
 
 def _relative_schema_path() -> str:

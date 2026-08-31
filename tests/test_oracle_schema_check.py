@@ -36,6 +36,9 @@ def test_quality_gate_propagates_schema_check_failure(
 ) -> None:
     commands: list[tuple[str, ...]] = []
 
+    monkeypatch.setenv("AGORA_ENVIRONMENT", "test")
+    monkeypatch.setenv(quality_gate.TEST_DATABASE_RESET_ALLOWED_ENV, "true")
+
     def fake_run(
         command: tuple[str, ...], *, check: bool, **kwargs: object
     ) -> subprocess.CompletedProcess[str]:

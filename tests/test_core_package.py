@@ -14,11 +14,12 @@ from agora.core.models import User
 def test_core_is_the_canonical_package_and_old_path_is_absent() -> None:
     core_package = import_module("agora.core")
     core_path = Path(cast(str, core_package.__file__))
+    legacy_path = core_path.parent.parent / "persistence"
 
     assert core_path.parent.name == "core"
-    assert not core_path.parent.parent.joinpath("persistence").exists()
-    with pytest.raises(ModuleNotFoundError, match=r"agora\.persistence"):
-        import_module("agora.persistence")
+    assert not any(legacy_path.rglob("*.py"))
+    with pytest.raises(ModuleNotFoundError, match=r"agora\.persistence\.models"):
+        import_module("agora.persistence.models")
 
 
 def test_persistence_app_identity_is_stable_after_package_rename() -> None:

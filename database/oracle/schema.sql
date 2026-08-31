@@ -11,7 +11,7 @@
 -- follows below.
 -- Run Django migrations for upgrades/data backfills; do not edit this artifact as a
 -- second source of truth. Re-run the generator after changing migrations.
--- Application package: agora.persistence; stable Django app label: persistence.
+-- Application package: agora.core; stable Django app label: persistence.
 
 -- Installed apps without migrations (and therefore without schema objects):
 --   messages, portal, staticfiles

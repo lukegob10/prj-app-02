@@ -149,7 +149,7 @@ Deployment infrastructure still owns TLS termination, DNS, private artifact stor
 credentials, supervision, and rollout/rollback. The underlying application callables remain
 explicit:
 
-| Service | ASGI callable (selected baseline) | WSGI callable (supported interface) | Settings composition |
+| Service | ASGI callable (production) | WSGI callable (compatibility/diagnostic only) | Settings composition |
 |---|---|---|---|
 | Trusted portal | `agora.asgi:application` | `agora.wsgi:application` | `agora.settings.portal` |
 | Isolated content | `agora.content_asgi:application` | `agora.content_wsgi:application` | `agora.settings.content` |

@@ -12,6 +12,10 @@ WSGI_APPLICATION = "agora.content_wsgi.application"
 ASGI_APPLICATION = "agora.content_asgi.application"
 
 INSTALLED_APPS = ["agora.core.apps.CoreConfig"]
+# The content service reads existing tables but never owns migration operations. Disabling its
+# migration graph also lets Django's standard runserver start without installing portal-only
+# framework apps solely to satisfy historical migration dependencies.
+MIGRATION_MODULES = {"persistence": None}
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -19,7 +23,7 @@ MIDDLEWARE = [
 ]
 TEMPLATES: list[dict[str, object]] = []
 
-# These deploy warnings describe protections that would violate the content composition:
+# These Django warnings describe protections that would violate the content composition:
 # CSRF middleware is unnecessary for a GET/HEAD-only service, and X-Frame-Options would block
 # the exact cross-origin portal frame already constrained by response-enforced CSP.
 SILENCED_SYSTEM_CHECKS = [*SILENCED_SYSTEM_CHECKS, "security.W002", "security.W003"]

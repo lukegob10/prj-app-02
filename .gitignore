@@ -18,10 +18,8 @@ htmlcov/
 # Build output
 build/
 dist/
-/managed/
 
-# Local databases and private artifacts
-.local/
+# Local databases
 *.sqlite3
 
 # Editors and operating systems

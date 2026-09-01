@@ -1,4 +1,4 @@
-"""Physical Oracle table names owned by the Agora deployment."""
+"""Physical Oracle table names owned by Agora."""
 
 from __future__ import annotations
 

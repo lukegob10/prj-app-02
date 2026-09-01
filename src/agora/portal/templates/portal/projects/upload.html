@@ -3,9 +3,7 @@
 
 {% block title %}Upload revision | {{ project.name }} | Agora{% endblock %}
 {% block body_class %} portal-page--workspace{% endblock %}
-{% block page_scripts %}
-  <script src="{% static 'portal/upload-dropzone.js' %}{% if development_reload %}?v={{ development_reload.version }}{% endif %}" defer></script>
-{% endblock %}
+{% block page_scripts %}<script src="{% static 'portal/upload-dropzone.js' %}" defer></script>{% endblock %}
 
 {% block content %}
   {% include "portal/components/page-header.html" with eyebrow="Immutable revision" title="Upload dashboard files" intro="Upload one required HTML entry point plus optional supporting files. Successful revisions cannot be changed." %}

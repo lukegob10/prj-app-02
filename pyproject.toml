@@ -12,8 +12,6 @@ dependencies = [
     "Django>=5.2.17,<5.3",
     "oracledb>=4.0,<5.0",
     "python-dotenv>=1.2.3,<2",
-    "treasury-analytics>=0.1.1,<0.2",
-    "uvicorn>=0.52.4,<0.53",
 ]
 
 [dependency-groups]
@@ -27,12 +25,6 @@ dev = [
     "ruff>=0.16.4,<0.17",
 ]
 
-[tool.uv]
-required-version = "==0.12.6"
-
-[tool.uv.sources]
-treasury-analytics = { path = "packages/treasury-analytics" }
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/agora"]
 
@@ -41,7 +33,6 @@ include = [
     "/database",
     "/src",
     "/tests",
-    "/scripts",
     "/README.md",
     "/pyproject.toml",
 ]
@@ -50,7 +41,6 @@ include = [
 required-version = ">=0.16.4,<0.17"
 target-version = "py314"
 line-length = 100
-extend-exclude = ["tickets"]
 
 [tool.ruff.lint]
 select = ["B", "DJ", "E", "F", "I", "RUF", "UP"]
@@ -64,7 +54,6 @@ python_version = "3.14"
 plugins = ["mypy_django_plugin.main"]
 strict = true
 warn_unreachable = true
-exclude = ["^tickets/"]
 
 [tool.django-stubs]
 django_settings_module = "agora.settings.portal"

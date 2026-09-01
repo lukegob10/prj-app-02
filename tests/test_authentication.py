@@ -7,10 +7,11 @@ from typing import Any, NoReturn
 from uuid import UUID
 
 import pytest
+from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import DatabaseError, IntegrityError, close_old_connections, connection, transaction
-from django.test import Client, RequestFactory, override_settings
+from django.test import Client, RequestFactory
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -37,9 +38,7 @@ from agora.portal.security import safe_next_url
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
-PORTAL_HOST = "portal.agora.test:8000"
-LOCAL_HTTPS_HOST = "localhost:8443"
-LOCAL_HTTPS_ORIGIN = f"https://{LOCAL_HTTPS_HOST}"
+PORTAL_HOST = "localhost:8000"
 
 
 def strong_password() -> str:
@@ -397,7 +396,7 @@ def test_successful_login_rotates_session_and_uses_safe_next_redirect(
     [
         "https://evil.example/steal",
         "//evil.example/steal",
-        "http://content.agorausercontent.test:8001/",
+        "http://127.0.0.1:8001/",
         "/\\\\evil.example",
         "/safe\r\nLocation: https://evil.example",
     ],
@@ -445,22 +444,22 @@ def test_post_logout_flushes_session_and_get_logout_is_non_mutating(
     assert AuditEvent.objects.filter(event_type="auth.logout", actor_id=admin.id).exists()
 
 
-def test_secure_host_only_cookie_settings_are_emitted_on_portal_login(
+def test_host_only_cookie_settings_are_emitted_on_portal_login(
     admin_identity: tuple[User, str],
 ) -> None:
     _, password = admin_identity
     client = Client()
     login_page = client.get(reverse("login"), HTTP_HOST=PORTAL_HOST)
-    csrf_cookie = login_page.cookies["__Host-agora_csrf"]
-    assert csrf_cookie["secure"] is True
+    csrf_cookie = login_page.cookies[settings.CSRF_COOKIE_NAME]
+    assert csrf_cookie["secure"] is settings.CSRF_COOKIE_SECURE
     assert csrf_cookie["httponly"] is True
     assert csrf_cookie["samesite"] == "Lax"
     assert csrf_cookie["path"] == "/"
     assert csrf_cookie["domain"] == ""
 
     response = login_client(client, "ADMIN.1", password)
-    session_cookie = response.cookies["__Host-agora_session"]
-    assert session_cookie["secure"] is True
+    session_cookie = response.cookies[settings.SESSION_COOKIE_NAME]
+    assert session_cookie["secure"] is settings.SESSION_COOKIE_SECURE
     assert session_cookie["httponly"] is True
     assert session_cookie["samesite"] == "Lax"
     assert session_cookie["path"] == "/"
@@ -469,7 +468,7 @@ def test_secure_host_only_cookie_settings_are_emitted_on_portal_login(
 
 def csrf_token(client: Client) -> str:
     client.get(reverse("login"), HTTP_HOST=PORTAL_HOST)
-    return client.cookies["__Host-agora_csrf"].value
+    return client.cookies[settings.CSRF_COOKIE_NAME].value
 
 
 def test_csrf_protects_login_logout_and_admin_mutations(
@@ -491,7 +490,7 @@ def test_csrf_protects_login_logout_and_admin_mutations(
         {"soeid": "ADMIN.1", "password": password},
         HTTP_HOST=PORTAL_HOST,
         HTTP_X_CSRFTOKEN=token,
-        HTTP_ORIGIN="http://content.agorausercontent.test:8001",
+        HTTP_ORIGIN="http://127.0.0.1:8001",
     )
     assert cross_origin.status_code == 403
 
@@ -515,90 +514,6 @@ def test_csrf_protects_login_logout_and_admin_mutations(
     assert mutation_missing.status_code == 403
     assert User.objects.filter(soeid="NEW.USER").exists() is False
     assert User.objects.get(id=admin.id).is_active is True
-
-
-@override_settings(
-    AGORA_ALLOW_OPAQUE_LOOPBACK_ORIGIN=True,
-    AGORA_ENVIRONMENT="development",
-    AGORA_PORTAL_ORIGIN=LOCAL_HTTPS_ORIGIN,
-    ALLOWED_HOSTS=["localhost"],
-)
-def test_local_https_accepts_opaque_origin_only_with_a_valid_csrf_token(
-    admin_identity: tuple[User, str],
-) -> None:
-    _, password = admin_identity
-    client = Client(enforce_csrf_checks=True)
-    client.get(
-        reverse("login"),
-        HTTP_HOST=LOCAL_HTTPS_HOST,
-        REMOTE_ADDR="127.0.0.1",
-        secure=True,
-    )
-    token = client.cookies["__Host-agora_csrf"].value
-
-    missing_token = client.post(
-        reverse("login"),
-        {"soeid": "ADMIN.1", "password": password},
-        HTTP_HOST=LOCAL_HTTPS_HOST,
-        HTTP_ORIGIN="null",
-        REMOTE_ADDR="127.0.0.1",
-        secure=True,
-    )
-    assert missing_token.status_code == 403
-
-    success = client.post(
-        reverse("login"),
-        {"soeid": "ADMIN.1", "password": password},
-        HTTP_HOST=LOCAL_HTTPS_HOST,
-        HTTP_ORIGIN="null",
-        HTTP_X_CSRFTOKEN=token,
-        REMOTE_ADDR="127.0.0.1",
-        secure=True,
-    )
-    assert success.status_code == 302
-    assert client.get(reverse("home"), HTTP_HOST=LOCAL_HTTPS_HOST, secure=True).status_code == 200
-
-
-@pytest.mark.parametrize(
-    ("environment", "enabled", "remote_address", "secure"),
-    [
-        ("production", True, "127.0.0.1", True),
-        ("development", False, "127.0.0.1", True),
-        ("development", True, "192.0.2.10", True),
-        ("development", True, "127.0.0.1", False),
-    ],
-)
-@override_settings(
-    AGORA_PORTAL_ORIGIN=LOCAL_HTTPS_ORIGIN,
-    ALLOWED_HOSTS=["localhost"],
-)
-def test_opaque_origin_compatibility_fails_closed_outside_local_https(
-    admin_identity: tuple[User, str],
-    environment: str,
-    enabled: bool,
-    remote_address: str,
-    secure: bool,
-) -> None:
-    _, password = admin_identity
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("login"), HTTP_HOST=LOCAL_HTTPS_HOST, secure=True)
-    token = client.cookies["__Host-agora_csrf"].value
-
-    with override_settings(
-        AGORA_ALLOW_OPAQUE_LOOPBACK_ORIGIN=enabled,
-        AGORA_ENVIRONMENT=environment,
-    ):
-        response = client.post(
-            reverse("login"),
-            {"soeid": "ADMIN.1", "password": password},
-            HTTP_HOST=LOCAL_HTTPS_HOST,
-            HTTP_ORIGIN="null",
-            HTTP_X_CSRFTOKEN=token,
-            REMOTE_ADDR=remote_address,
-            secure=secure,
-        )
-
-    assert response.status_code == 403
 
 
 def test_disabled_session_does_not_revive_after_reenable(

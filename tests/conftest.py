@@ -5,9 +5,10 @@ from collections.abc import Iterator
 
 import pytest
 
-from scripts.check import database_acknowledgement_error, database_reset_is_explicitly_allowed
 from tests.database_guard import (
     DATABASE_SELECTION_ATTRIBUTE,
+    database_acknowledgement_error,
+    database_reset_is_explicitly_allowed,
     database_tests_selected,
 )
 

@@ -58,14 +58,12 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 SECURE_HSTS_INCLUDE_SUBDOMAINS = False
 SECURE_HSTS_PRELOAD = False
 SECURE_HSTS_SECONDS = 365 * 24 * 60 * 60 if RUNTIME.is_production else 0
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_REFERRER_POLICY = "no-referrer"
-SECURE_REDIRECT_EXEMPT = [r"^health/(?:live|ready)/$"]
 SECURE_SSL_REDIRECT = RUNTIME.is_production
 
 # Agora owns the exact configured hosts, not every sibling under their registrable domains.
 # Include-subdomains and preload therefore require a separate DNS-wide review and are not safe
-# defaults for this application-level deployment contract.
+# defaults for this application's exact configured hosts.
 SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 
 AGORA_ENVIRONMENT = RUNTIME.environment

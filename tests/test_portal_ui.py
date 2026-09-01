@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -15,10 +15,9 @@ from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.http import HttpRequest
 from django.template import Context, Template
 from django.template.loader import render_to_string
-from django.test import Client, RequestFactory, override_settings
+from django.test import Client
 from django.utils.datastructures import MultiValueDict
 
-from agora.portal.context_processors import portal_shell
 from agora.portal.forms import GrantViewerForm, RevisionUploadForm, UserSearchForm
 from agora.portal.views import _request_upload_parts, _upload_error_message
 from agora.uploads import UploadIssue, UploadIssueCode, UploadIssueField, UploadRejected
@@ -33,7 +32,6 @@ PORTAL_CSS = (
     / "foundation.css"
 )
 UPLOAD_DROPZONE_JS = PORTAL_CSS.with_name("upload-dropzone.js")
-DEVELOPMENT_RELOAD_JS = PORTAL_CSS.with_name("development-reload.js")
 BRAND_ROOT = PORTAL_CSS.parent / "brand"
 TEMPLATE_ROOT = PORTAL_CSS.parents[2] / "templates" / "portal"
 
@@ -67,7 +65,7 @@ def render_component(name: str, context: dict[str, object]) -> str:
 
 @pytest.mark.smoke
 def test_portal_shell_renders_accessible_landmarks_and_truthful_states(client: Client) -> None:
-    response = client.get("/", HTTP_HOST="portal.agora.test")
+    response = client.get("/", HTTP_HOST="localhost")
     document = response.content.decode()
     parser = DocumentParser()
     parser.feed(document)
@@ -161,7 +159,6 @@ def test_upload_template_uses_one_dropzone_and_states_replacement_policy() -> No
     assert "data-upload-list" in source
     assert source.count("upload-dropzone.js") == 1
     assert source.count("{% static 'portal/upload-dropzone.js' %}") == 1
-    assert "?v={{ development_reload.version }}" in source
     assert source.count("defer></script>") == 1
     assert "upload-dropzone.js" not in base_source
     assert 'class="portal-upload-feedback"' in source
@@ -306,7 +303,7 @@ def test_upload_request_keeps_the_unified_queue_order() -> None:
 
 @pytest.mark.smoke
 def test_login_page_uses_one_compact_sign_in_surface(client: Client) -> None:
-    response = client.get("/login/", HTTP_HOST="portal.agora.test")
+    response = client.get("/login/", HTTP_HOST="localhost")
     document = response.content.decode()
     parser = DocumentParser()
     parser.feed(document)
@@ -333,7 +330,7 @@ def test_login_page_uses_one_compact_sign_in_surface(client: Client) -> None:
 
 @pytest.mark.smoke
 def test_portal_shell_is_csp_compatible_and_uses_the_committed_stylesheet(client: Client) -> None:
-    response = client.get("/", HTTP_HOST="portal.agora.test")
+    response = client.get("/", HTTP_HOST="localhost")
     document = response.content.decode()
     parser = DocumentParser()
     parser.feed(document)
@@ -376,40 +373,6 @@ def test_portal_shell_is_csp_compatible_and_uses_the_committed_stylesheet(client
     assert finders.find("portal/brand/favicon-32.png") == str(BRAND_ROOT / "favicon-32.png")
     assert "script-src 'self'" in response.headers["Content-Security-Policy"]
     assert "style-src 'self'" in response.headers["Content-Security-Policy"]
-
-
-@pytest.mark.smoke
-@override_settings(AGORA_DEVELOPMENT_LIVE_RELOAD=True)
-def test_development_shell_enables_self_hosted_live_refresh(client: Client) -> None:
-    response = client.get("/", HTTP_HOST="portal.agora.test")
-    document = response.content.decode()
-
-    assert response.status_code == 200
-    assert re.search(r'href="/static/portal/foundation\.css\?v=[0-9a-f]{20}"', document)
-    assert 'src="/static/portal/development-reload.js"' in document
-    assert 'data-reload-request-method="GET"' in document
-    assert 'data-reload-url="/__dev__/reload/"' in document
-    assert re.search(r'data-reload-version="[0-9a-f]{20}"', document)
-    assert "script-src 'self'" in response.headers["Content-Security-Policy"]
-    assert "'unsafe-inline'" not in response.headers["Content-Security-Policy"]
-
-
-@override_settings(AGORA_DEVELOPMENT_LIVE_RELOAD=True)
-def test_development_shell_marks_post_responses_as_non_reloadable() -> None:
-    request = RequestFactory().post("/login/")
-    request.user = cast(Any, SimpleNamespace(is_authenticated=False))
-    request.resolver_match = cast(Any, SimpleNamespace(url_name="login"))
-
-    context = portal_shell(request)
-
-    assert context["development_reload"]["request_method"] == "POST"
-
-
-def test_development_reload_client_never_replays_post_responses() -> None:
-    source = DEVELOPMENT_RELOAD_JS.read_text(encoding="utf-8")
-
-    assert 'requestMethod !== "GET"' in source
-    assert "window.location.reload()" in source
 
 
 def test_foundation_css_declares_responsive_accessibility_and_component_contracts() -> None:

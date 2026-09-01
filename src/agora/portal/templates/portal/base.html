@@ -10,16 +10,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="{% static 'portal/brand/favicon-32.png' %}">
     <link rel="icon" type="image/png" sizes="192x192" href="{% static 'portal/brand/favicon-192.png' %}">
     <link rel="apple-touch-icon" sizes="180x180" href="{% static 'portal/brand/apple-touch-icon.png' %}">
-    <link rel="stylesheet" href="{% static 'portal/foundation.css' %}{% if development_reload %}?v={{ development_reload.version }}{% endif %}">
-    {% if development_reload %}
-      <script
-        src="{% static 'portal/development-reload.js' %}"
-        data-reload-request-method="{{ development_reload.request_method }}"
-        data-reload-url="{{ development_reload.url }}"
-        data-reload-version="{{ development_reload.version }}"
-        defer
-      ></script>
-    {% endif %}
+    <link rel="stylesheet" href="{% static 'portal/foundation.css' %}">
     {% block page_scripts %}{% endblock %}
     {% block head_extra %}{% endblock %}
   </head>

@@ -9,6 +9,7 @@ from typing import cast
 from uuid import UUID
 
 import pytest
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.http import StreamingHttpResponse
@@ -187,7 +188,7 @@ def test_content_entry_point_delivers_only_scoped_html_and_csv(
         viewer_id=owner.id,
     )
     client = Client()
-    client.cookies["__Host-agora_session"] = "must-not-be-used"
+    client.cookies[settings.SESSION_COOKIE_NAME] = "must-not-be-used"
     middleware = [
         "django.middleware.security.SecurityMiddleware",
         "django.middleware.common.CommonMiddleware",

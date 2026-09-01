@@ -11,10 +11,10 @@ import pytest
 from django.conf import settings
 from django.test import SimpleTestCase, TransactionTestCase
 
-from scripts.check import TEST_DATABASE_RESET_ALLOWED_ENV
 from tests import conftest as test_conftest
 from tests.database_guard import (
     DATABASE_SELECTION_ATTRIBUTE,
+    TEST_DATABASE_RESET_ALLOWED_ENV,
     database_tests_selected,
     item_requests_database,
     parse_test_database_reset_allowed,

@@ -1,6 +1,8 @@
 """Settings for the trusted portal UI and API origin."""
 
 import os
+import tempfile
+from pathlib import Path
 
 from agora.config import load_portal_static_root, load_service_secret
 from agora.settings.base import *
@@ -24,7 +26,6 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "agora.middleware.LoopbackOpaqueOriginMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -66,36 +67,27 @@ STATIC_URL = "/static/"
 STATIC_ROOT = load_portal_static_root(
     os.environ,
     environment=RUNTIME.environment,
-    development_default=BASE_DIR / ".local" / "static",
+    development_default=Path(tempfile.gettempdir()) / "agora" / "static",
 )
 # One HTML entry point plus at most 50 supporting files. Django enforces this while parsing the
 # multipart request, before the package validator independently counts and stages every part.
 DATA_UPLOAD_MAX_NUMBER_FILES = 51
-AGORA_DEVELOPMENT_LIVE_RELOAD = (
-    RUNTIME.environment == "development"
-    and os.environ.get("AGORA_DEVELOPMENT_LIVE_RELOAD") == "true"
-)
-
-CSRF_COOKIE_NAME = "__Host-agora_csrf"
+_SECURE_PORTAL_COOKIES = RUNTIME.portal_origin.scheme == "https"
+_PORTAL_COOKIE_PREFIX = "__Host-" if _SECURE_PORTAL_COOKIES else ""
+CSRF_COOKIE_NAME = f"{_PORTAL_COOKIE_PREFIX}agora_csrf"
 CSRF_COOKIE_DOMAIN = None
 CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_PATH = "/"
 CSRF_COOKIE_SAMESITE = "Lax"
-CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = _SECURE_PORTAL_COOKIES
 CSRF_TRUSTED_ORIGINS = [RUNTIME.portal_origin.value]
-AGORA_ALLOW_OPAQUE_LOOPBACK_ORIGIN = (
-    RUNTIME.environment == "development"
-    and RUNTIME.portal_origin.scheme == "https"
-    and RUNTIME.portal_origin.hostname in {"127.0.0.1", "::1", "localhost"}
-    and os.environ.get("AGORA_ALLOW_OPAQUE_LOOPBACK_ORIGIN") == "true"
-)
 SESSION_COOKIE_AGE = 8 * 60 * 60
-SESSION_COOKIE_NAME = "__Host-agora_session"
+SESSION_COOKIE_NAME = f"{_PORTAL_COOKIE_PREFIX}agora_session"
 SESSION_COOKIE_DOMAIN = None
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_PATH = "/"
 SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = _SECURE_PORTAL_COOKIES
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"

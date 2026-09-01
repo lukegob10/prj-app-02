@@ -2,8 +2,6 @@
 
 from django.urls import include, path
 
-from agora.health import liveness, portal_readiness
-from agora.portal.development import development_reload_version
 from agora.portal.views import (
     login_view,
     logout_view,
@@ -20,9 +18,6 @@ from agora.portal.views import (
 )
 
 urlpatterns = [
-    path("health/live/", liveness, name="health-live"),
-    path("health/ready/", portal_readiness, name="health-ready"),
-    path("__dev__/reload/", development_reload_version, name="development-reload-version"),
     path("", include("agora.urls.discovery")),
     path("login/", login_view, name="login"),
     path("logout/", logout_view, name="logout"),

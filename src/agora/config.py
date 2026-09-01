@@ -19,7 +19,14 @@ _SERVICE_SECRET_NAMES: dict[ServiceName, str] = {
     "content": "AGORA_CONTENT_SECRET_KEY",
 }
 _PLACEHOLDERS: frozenset[str] = frozenset(
-    {"GENERATE_WITH_BOOTSTRAP", "SET_BY_BOOTSTRAP", "CHANGEME"}
+    {
+        "CHANGEME",
+        "GENERATE_LOCALLY",
+        "GENERATE_WITH_BOOTSTRAP",
+        "SET_BY_BOOTSTRAP",
+        "SET_LOCALLY",
+        "SET_TO_ABSOLUTE_PATH",
+    }
 )
 
 
@@ -152,7 +159,7 @@ def validate_treasury_package(
     distribution_present: bool,
     distribution_summary: str,
 ) -> None:
-    """Prevent the repository's local Oracle package from entering production."""
+    """Reject a development-only Oracle package in production."""
 
     normalized_summary = distribution_summary.casefold()
     local_summary = "stand-in" in normalized_summary or "development-only" in normalized_summary

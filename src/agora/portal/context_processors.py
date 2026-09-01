@@ -8,8 +8,6 @@ from django.conf import settings
 from django.http import HttpRequest
 from django.urls import reverse
 
-from agora.portal.development import development_source_version
-
 
 def portal_shell(request: HttpRequest) -> dict[str, Any]:
     """Expose only real routes and the current trusted account to the shell."""
@@ -54,17 +52,8 @@ def portal_shell(request: HttpRequest) -> dict[str, Any]:
     else:
         account = {"login_url": reverse("login")}
 
-    development_reload = None
-    if getattr(settings, "AGORA_DEVELOPMENT_LIVE_RELOAD", False):
-        development_reload = {
-            "request_method": request.method,
-            "url": reverse("development-reload-version"),
-            "version": development_source_version(settings.BASE_DIR),
-        }
-
     return {
         "account": account,
-        "development_reload": development_reload,
         "environment": settings.AGORA_ENVIRONMENT,
         "nav_items": nav_items,
     }

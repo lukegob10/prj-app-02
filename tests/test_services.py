@@ -21,27 +21,25 @@ class ContentComposition(Protocol):
     SECRET_KEY: str
     ALLOWED_HOSTS: list[str]
     INSTALLED_APPS: list[str]
+    MIGRATION_MODULES: dict[str, str | None]
     MIDDLEWARE: list[str]
 
 
 @pytest.mark.smoke
 def test_portal_is_runnable(client: Client) -> None:
-    response = client.get("/", HTTP_HOST="portal.agora.test")
+    response = client.get("/", HTTP_HOST="localhost")
 
     assert response.status_code == 200
     assert b"Share dashboards without giving up control" in response.content
     assert b"Dashboard code runs outside the trusted portal" in response.content
     assert response.headers["X-Frame-Options"] == "DENY"
     assert "script-src 'self'" in response.headers["Content-Security-Policy"]
-    assert (
-        "frame-src http://content.agorausercontent.test:8001"
-        in response.headers["Content-Security-Policy"]
-    )
+    assert "frame-src http://127.0.0.1:8001" in response.headers["Content-Security-Policy"]
 
 
 @pytest.mark.smoke
 def test_portal_rejects_the_content_hostname(client: Client) -> None:
-    response = client.get("/", HTTP_HOST="content.agorausercontent.test")
+    response = client.get("/", HTTP_HOST="127.0.0.1")
 
     assert response.status_code == 400
 
@@ -49,7 +47,7 @@ def test_portal_rejects_the_content_hostname(client: Client) -> None:
 @pytest.mark.smoke
 @override_settings(
     ROOT_URLCONF="agora.urls.content",
-    ALLOWED_HOSTS=["content.agorausercontent.test"],
+    ALLOWED_HOSTS=["127.0.0.1"],
     MIDDLEWARE=[
         "django.middleware.security.SecurityMiddleware",
         "django.middleware.common.CommonMiddleware",
@@ -58,23 +56,17 @@ def test_portal_rejects_the_content_hostname(client: Client) -> None:
 )
 def test_content_service_starts_fail_closed(client: Client) -> None:
     for path in ("/", "/arbitrary/path", "/artifact/1/dashboard.html", "/csv/report.csv"):
-        response = client.get(path, HTTP_HOST="content.agorausercontent.test")
+        response = client.get(path, HTTP_HOST="127.0.0.1")
 
         assert response.status_code == 404
         assert response.headers["Cache-Control"] == "private, no-store"
         assert "default-src 'none'" in response.headers["Content-Security-Policy"]
         assert "sandbox allow-scripts" in response.headers["Content-Security-Policy"]
         assert (
-            "frame-ancestors http://portal.agora.test:8000"
-            in response.headers["Content-Security-Policy"]
+            "frame-ancestors http://localhost:8000" in response.headers["Content-Security-Policy"]
         )
 
-    assert (
-        client.post(
-            "/artifact/1/dashboard.html", HTTP_HOST="content.agorausercontent.test"
-        ).status_code
-        == 404
-    )
+    assert client.post("/artifact/1/dashboard.html", HTTP_HOST="127.0.0.1").status_code == 404
 
 
 @pytest.mark.smoke
@@ -89,8 +81,9 @@ def test_service_entrypoints_and_content_composition_import() -> None:
         assert callable(module.application)
 
     content_settings = cast(ContentComposition, import_module("agora.settings.content"))
-    assert content_settings.ALLOWED_HOSTS == ["content.agorausercontent.test"]
+    assert content_settings.ALLOWED_HOSTS == ["127.0.0.1"]
     assert content_settings.INSTALLED_APPS == ["agora.core.apps.CoreConfig"]
+    assert content_settings.MIGRATION_MODULES == {"persistence": None}
     assert content_settings.SECRET_KEY != settings.SECRET_KEY
     assert all("session" not in middleware.lower() for middleware in content_settings.MIDDLEWARE)
 

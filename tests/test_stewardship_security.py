@@ -309,6 +309,21 @@ def test_request_post_is_generic_deduplicated_reopenable_and_audited(tmp_path: P
     }
 
 
+def test_invalid_access_request_rerenders_bound_form_without_false_success() -> None:
+    requester = _user("STEWARD.REQUEST.INVALID")
+    response = _client(requester).post(
+        reverse("project-view", args=[uuid4()]),
+        {"message": "x" * 501},
+    )
+
+    assert response.status_code == 200
+    assert response.context["request_submitted"] is False
+    assert response.context["request_form"].is_bound is True
+    assert response.context["request_form"].errors["message"]
+    assert GENERIC_REQUEST_CONFIRMATION not in response.content
+    assert AccessRequest.objects.count() == 0
+
+
 def test_request_queue_is_pending_only_escaped_and_owner_scoped(tmp_path: Path) -> None:
     owner = _user("STEWARD.QUEUE.OWNER")
     requester = _user("STEWARD.QUEUE.REQUESTER")

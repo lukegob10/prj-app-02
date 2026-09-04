@@ -216,6 +216,25 @@ def test_request_access_form_is_generic_labeled_escaped_and_metadata_free() -> N
     assert_no_inline_behavior(document, parser)
 
 
+def test_request_access_message_normalizes_textarea_whitespace_and_rejects_controls() -> None:
+    multiline = DashboardAccessRequestForm(
+        {"message": "Please add me.\r\n\tReporting deadline is Friday."}
+    )
+    assert multiline.is_valid()
+    assert multiline.cleaned_data["message"] == ("Please add me. Reporting deadline is Friday.")
+
+    nul = DashboardAccessRequestForm({"message": "visible\x00hidden"})
+    assert nul.is_valid() is False
+    assert "not allowed" in nul.errors["message"][0]
+
+    format_control = DashboardAccessRequestForm({"message": "visible\u200bhidden"})
+    assert format_control.is_valid() is False
+    assert "control characters" in format_control.errors["message"][0]
+
+    too_long = DashboardAccessRequestForm({"message": "x" * 501})
+    assert too_long.is_valid() is False
+
+
 def test_submitted_request_uses_exact_safe_copy_and_never_echoes_the_note() -> None:
     request_form = DashboardAccessRequestForm({"message": "PRIVATE NOTE THAT MUST NOT BE ECHOED"})
     assert request_form.is_valid()

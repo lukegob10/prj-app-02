@@ -336,7 +336,7 @@ def _load_transfer_target(
         return None
     try:
         incoming_owner_id = UUID(payload["incoming_owner_id"])
-    except AttributeError, TypeError, ValueError:
+    except (AttributeError, TypeError, ValueError):
         return None
     epoch_value = payload["ownership_epoch"]
     if epoch_value == "":
@@ -344,7 +344,7 @@ def _load_transfer_target(
     else:
         try:
             expected_transfer_id = UUID(epoch_value)
-        except AttributeError, TypeError, ValueError:
+        except (AttributeError, TypeError, ValueError):
             return None
     if project.last_ownership_transfer_id != expected_transfer_id:
         return None

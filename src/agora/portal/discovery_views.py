@@ -129,13 +129,15 @@ def project_tags(request: HttpRequest, project_id: UUID) -> HttpResponse:
     if project is None or project.state in {Dashboard.State.ARCHIVED, Dashboard.State.DELETED}:
         return render(request, "portal/not_found.html", status=404)
 
-    initial = {
-        f"tag_{position}": tag.label
-        for position, tag in enumerate(
-            dashboard_tags(dashboard_id=project.id, principal_id=user.id, limit=5),
-            start=1,
-        )
-    }
+    initial = None
+    if request.method == "GET":
+        initial = {
+            f"tag_{position}": tag.label
+            for position, tag in enumerate(
+                dashboard_tags(dashboard_id=project.id, principal_id=user.id, limit=5),
+                start=1,
+            )
+        }
     tag_form = DashboardTagsForm(
         request.POST if request.method == "POST" else None,
         initial=initial,

@@ -4,6 +4,8 @@ import os
 
 from django.core.asgi import get_asgi_application
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "agora.settings.content")
+from agora.service_entrypoint import configure_django_settings
+
+configure_django_settings(os.environ, "agora.settings.content")
 
 application = get_asgi_application()

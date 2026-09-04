@@ -152,11 +152,7 @@ def request_dashboard_access(
     message: str = "",
 ) -> AccessRequest:
     """Create, return, or reopen the one request row for a published dashboard."""
-    normalized_message = _normalize_short_text(
-        message,
-        maximum=MAX_ACCESS_REQUEST_MESSAGE_LENGTH,
-        label="request message",
-    )
+    normalized_message = normalize_access_request_message(message)
     requested_at = timezone.now()
     with transaction.atomic(durable=True):
         dashboard = get_one_or_none(
@@ -485,6 +481,26 @@ def publish_dashboard_revision(
         return dashboard
 
 
+def unpublish_dashboard(*, dashboard_id: UUID, actor_id: UUID) -> Dashboard:
+    """Withdraw the current publication without rewriting retained release history."""
+    with transaction.atomic(durable=True):
+        dashboard, actor = _lock_current_owner(dashboard_id=dashboard_id, actor_id=actor_id)
+        if dashboard.state != Dashboard.State.PUBLISHED or dashboard.published_revision is None:
+            raise EnhancementAccessDenied(_GENERIC_FAILURE)
+        published_revision = dashboard.published_revision
+        dashboard.state = Dashboard.State.UNPUBLISHED
+        dashboard.published_revision = None
+        dashboard.save(update_fields=("state", "published_revision", "updated_at"))
+        AuditEvent.objects.create(
+            event_type="dashboard.unpublished",
+            actor=actor,
+            dashboard=dashboard,
+            revision=published_revision,
+            metadata={"publication_version": dashboard.publication_version},
+        )
+        return dashboard
+
+
 def rollback_dashboard_by_republish(
     *,
     dashboard_id: UUID,
@@ -598,12 +614,25 @@ def _apply_freshness(
 def _normalize_short_text(value: str, *, maximum: int, label: str) -> str:
     if not isinstance(value, str):
         raise EnhancementValidationError(f"{label} must be text")
-    if any(unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in value):
+    if any(
+        unicodedata.category(character) in {"Cf", "Cs"}
+        or (unicodedata.category(character) == "Cc" and character not in "\t\r\n")
+        for character in value
+    ):
         raise EnhancementValidationError(f"{label} cannot contain control characters")
     normalized = " ".join(value.split())
     if len(normalized) > maximum:
         raise EnhancementValidationError(f"{label} must be at most {maximum} characters")
     return normalized
+
+
+def normalize_access_request_message(value: str) -> str:
+    """Normalize textarea whitespace while rejecting invisible or dangerous controls."""
+    return _normalize_short_text(
+        value,
+        maximum=MAX_ACCESS_REQUEST_MESSAGE_LENGTH,
+        label="request message",
+    )
 
 
 def _audit_grant(
@@ -626,6 +655,7 @@ __all__ = [
     "EnhancementAccessDenied",
     "EnhancementValidationError",
     "confirm_dashboard_freshness",
+    "normalize_access_request_message",
     "normalize_tag_key",
     "publish_dashboard_revision",
     "replace_dashboard_tags",
@@ -634,4 +664,5 @@ __all__ = [
     "rollback_dashboard_by_republish",
     "set_dashboard_favorite",
     "transfer_dashboard_ownership",
+    "unpublish_dashboard",
 ]

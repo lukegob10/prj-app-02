@@ -1,0 +1,83 @@
+name: agora
+
+x-agora-build: &agora-build
+  context: .
+  dockerfile: Dockerfile
+  additional_contexts:
+    treasury_analytics: ${TREASURY_ANALYTICS_CONTEXT:-.}
+  args:
+    TREASURY_ANALYTICS_WHEEL_SHA256: ${TREASURY_ANALYTICS_WHEEL_SHA256:-}
+
+x-agora-environment: &agora-environment
+  AGORA_ARTIFACT_ROOT: /var/lib/agora/artifacts
+  AGORA_STATIC_ROOT: /var/lib/agora/static
+
+x-agora-service: &agora-service
+  image: ${AGORA_IMAGE:-agora:local}
+  build: *agora-build
+  pull_policy: build
+  env_file:
+    - path: ${AGORA_ENV_FILE:-.env}
+      required: true
+  init: true
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:mode=1777,size=256m
+  stop_signal: SIGTERM
+  stop_grace_period: 40s
+
+x-agora-healthcheck: &agora-healthcheck
+  # This is process liveness only; database migrations remain an explicit pre-start operation.
+  test:
+    - CMD
+    - python
+    - -c
+    - "import socket; socket.create_connection(('127.0.0.1',8000),3).close()"
+  interval: 15s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+
+services:
+  portal:
+    <<: *agora-service
+    environment:
+      <<: *agora-environment
+      AGORA_CONTENT_SECRET_KEY: ""
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - artifacts:/var/lib/agora/artifacts
+    healthcheck: *agora-healthcheck
+
+  content:
+    <<: *agora-service
+    command:
+      - python
+      - -m
+      - uvicorn
+      - agora.content_asgi:application
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --no-server-header
+      - --no-access-log
+      - --timeout-graceful-shutdown
+      - "30"
+    environment:
+      <<: *agora-environment
+      AGORA_PORTAL_SECRET_KEY: ""
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - artifacts:/var/lib/agora/artifacts:ro
+    healthcheck: *agora-healthcheck
+
+volumes:
+  artifacts:

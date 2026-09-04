@@ -595,6 +595,38 @@ def test_collision_bytes_survive_failed_compensation_and_expiry(
         assert stream.read() == b"pre-existing bytes"
 
 
+def test_quarantined_reserved_rows_cannot_starve_actionable_cleanup(
+    storage: FilesystemArtifactStorage,
+) -> None:
+    cutoff = timezone.now()
+    quarantined_ids = []
+    for offset in range(3):
+        reservation = StorageReservation.objects.create(
+            storage_key=storage.generate_key().value,
+            expires_at=cutoff - timedelta(days=3, seconds=offset),
+            cleanup_required=True,
+        )
+        quarantined_ids.append(reservation.id)
+
+    owned_key = storage.generate_key()
+    receipt = storage.write(owned_key, (b"actionable orphan",))
+    owned = StorageReservation.objects.create(
+        storage_key=owned_key.value,
+        expires_at=cutoff - timedelta(days=1),
+        storage_state=StorageReservation.StorageState.OWNED,
+        verified_size=receipt.byte_size,
+        verified_sha256=receipt.sha256,
+    )
+
+    result = cleanup_expired_reservations(storage, now=cutoff, limit=1)
+
+    assert result == core_services.CleanupResult(removed=1, retained=0)
+    assert StorageReservation.objects.filter(id=owned.id).exists() is False
+    assert set(
+        StorageReservation.objects.filter(id__in=quarantined_ids).values_list("id", flat=True)
+    ) == set(quarantined_ids)
+
+
 def test_commit_response_ambiguity_never_deletes_committed_artifacts(
     dashboard: Dashboard,
     owner: User,

@@ -4,10 +4,20 @@ import os
 from importlib.metadata import PackageNotFoundError, metadata
 from pathlib import Path
 
-import treasury_analytics
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 from agora.config import RuntimeConfig, validate_treasury_package
+
+try:
+    import treasury_analytics
+except ModuleNotFoundError as error:
+    if error.name != "treasury_analytics":
+        raise
+    raise ImproperlyConfigured(
+        "Agora requires the approved treasury-analytics wheel in its active environment; "
+        "install it after syncing the public lock."
+    ) from error
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 load_dotenv(BASE_DIR / ".env", override=False)
@@ -58,8 +68,12 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 SECURE_HSTS_INCLUDE_SUBDOMAINS = False
 SECURE_HSTS_PRELOAD = False
 SECURE_HSTS_SECONDS = 365 * 24 * 60 * 60 if RUNTIME.is_production else 0
+# Uvicorn owns proxy source trust and normalizes a trusted scheme into the ASGI scope. Django must
+# ignore the raw forwarding headers; the edge must also preserve the original browser-visible Host.
+SECURE_PROXY_SSL_HEADER = None
 SECURE_REFERRER_POLICY = "no-referrer"
 SECURE_SSL_REDIRECT = RUNTIME.is_production
+USE_X_FORWARDED_HOST = False
 
 # Agora owns the exact configured hosts, not every sibling under their registrable domains.
 # Include-subdomains and preload therefore require a separate DNS-wide review and are not safe

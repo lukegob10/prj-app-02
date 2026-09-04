@@ -29,6 +29,7 @@ def valid_environment(tmp_path: Path) -> dict[str, str]:
         "ENV": "prod",
         "TA_PROD_PASSWORD": "not-a-real-password",
         "AGORA_ARTIFACT_ROOT": str(tmp_path / "artifacts"),
+        "FORWARDED_ALLOW_IPS": "127.0.0.1,10.20.0.0/24",
     }
 
 
@@ -55,6 +56,7 @@ def test_configuration_accepts_explicit_safe_values(tmp_path: Path) -> None:
     assert config.database.environment == "PROD"
     assert config.database.password_variable == "TA_PROD_PASSWORD"
     assert config.artifact_root.is_absolute()
+    assert config.forwarded_allow_ips == ("127.0.0.1", "10.20.0.0/24")
     assert load_service_secret(environ, "portal") == "p" * 64
     assert load_service_secret(environ, "content") == "c" * 64
 
@@ -147,6 +149,33 @@ def test_configuration_rejects_same_hostname_even_on_different_ports(tmp_path: P
         RuntimeConfig.from_environ(environ)
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://*",
+        "http://*.agora.test",
+        "http://.agora.test",
+        "http://0.0.0.0:8000",
+        "http://[::]:8000",
+    ],
+)
+def test_configuration_rejects_wildcard_and_bind_only_origins(tmp_path: Path, origin: str) -> None:
+    environ = valid_environment(tmp_path)
+    environ["AGORA_PORTAL_ORIGIN"] = origin
+
+    with pytest.raises(ImproperlyConfigured, match="exact browser-reachable hostname"):
+        RuntimeConfig.from_environ(environ)
+
+
+@pytest.mark.parametrize("origin", ["http://portal.agora.test:80", "https://portal.agora.test:443"])
+def test_configuration_rejects_explicit_default_origin_ports(tmp_path: Path, origin: str) -> None:
+    environ = valid_environment(tmp_path)
+    environ["AGORA_PORTAL_ORIGIN"] = origin
+
+    with pytest.raises(ImproperlyConfigured, match="omit the default port"):
+        RuntimeConfig.from_environ(environ)
+
+
 def test_configuration_rejects_shared_service_secret(tmp_path: Path) -> None:
     environ = valid_environment(tmp_path)
     environ["AGORA_CONTENT_SECRET_KEY"] = environ["AGORA_PORTAL_SECRET_KEY"]
@@ -167,6 +196,44 @@ def test_production_requires_https_and_disables_debug(tmp_path: Path) -> None:
     assert "AGORA_DEBUG must be false" in message
     assert "AGORA_PORTAL_ORIGIN must use https" in message
     assert "AGORA_CONTENT_ORIGIN must use https" in message
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("*", "must not trust every peer"),
+        ("0.0.0.0/0", "must not contain a universal network"),
+        ("::/0", "must not contain a universal network"),
+        ("10.20.0.1/24", "canonical IP addresses or CIDRs"),
+        ("proxy.internal", "canonical IP addresses or CIDRs"),
+        ("127.0.0.1,,10.20.0.1", "must not contain empty entries"),
+    ],
+)
+def test_configuration_rejects_unsafe_proxy_trust(
+    tmp_path: Path,
+    value: str,
+    message: str,
+) -> None:
+    environ = valid_environment(tmp_path)
+    environ["FORWARDED_ALLOW_IPS"] = value
+
+    with pytest.raises(ImproperlyConfigured, match=message):
+        RuntimeConfig.from_environ(environ)
+
+
+def test_production_requires_explicit_proxy_trust(tmp_path: Path) -> None:
+    environ = valid_environment(tmp_path)
+    environ.update(
+        {
+            "AGORA_ENVIRONMENT": "production",
+            "AGORA_PORTAL_ORIGIN": "https://portal.agora.test",
+            "AGORA_CONTENT_ORIGIN": "https://content.agorausercontent.test",
+        }
+    )
+    del environ["FORWARDED_ALLOW_IPS"]
+
+    with pytest.raises(ImproperlyConfigured, match="required in production"):
+        RuntimeConfig.from_environ(environ)
 
 
 def test_valid_production_configuration_is_explicit_and_secure(tmp_path: Path) -> None:
@@ -366,3 +433,22 @@ def test_private_artifact_root_rejects_app_discovered_static_directory() -> None
         errors = private_artifact_root_check(None)
 
     assert [error.id for error in errors] == ["agora.E001"]
+
+
+@pytest.mark.parametrize("artifact", ("repo", "repo/private-artifacts", "."))
+def test_private_artifact_root_rejects_source_tree_overlap(
+    tmp_path: Path,
+    artifact: str,
+) -> None:
+    source_root = tmp_path / "repo"
+    artifact_root = tmp_path / artifact
+    with override_settings(
+        BASE_DIR=source_root,
+        AGORA_ARTIFACT_ROOT=artifact_root,
+        STATIC_ROOT="",
+        MEDIA_ROOT="",
+        STATICFILES_DIRS=(),
+    ):
+        errors = private_artifact_root_check(None)
+
+    assert [error.id for error in errors] == ["agora.E002"]

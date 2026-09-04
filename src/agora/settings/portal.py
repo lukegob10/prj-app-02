@@ -5,15 +5,16 @@ import tempfile
 from pathlib import Path
 
 from agora.config import load_portal_static_root, load_service_secret
+from agora.rendering.security import PORTAL_REFERRER_POLICY
 from agora.settings.base import *
 
 SECRET_KEY = load_service_secret(os.environ, "portal")
 ALLOWED_HOSTS = [RUNTIME.portal_origin.hostname]
 ROOT_URLCONF = "agora.urls.portal"
-WSGI_APPLICATION = "agora.wsgi.application"
 ASGI_APPLICATION = "agora.asgi.application"
 
 INSTALLED_APPS = [
+    "servestatic",
     "django.contrib.contenttypes",
     "django.contrib.auth",
     "django.contrib.sessions",
@@ -24,6 +25,7 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "servestatic.middleware.ServeStaticMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -69,6 +71,19 @@ STATIC_ROOT = load_portal_static_root(
     environment=RUNTIME.environment,
     development_default=Path(tempfile.gettempdir()) / "agora" / "static",
 )
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": (
+            "servestatic.storage.CompressedManifestStaticFilesStorage"
+            if RUNTIME.is_production
+            else "django.contrib.staticfiles.storage.StaticFilesStorage"
+        ),
+    },
+}
+SERVESTATIC_USE_FINDERS = not RUNTIME.is_production
+SERVESTATIC_USE_MANIFEST = RUNTIME.is_production
+SERVESTATIC_USE_STATIC_ROOT = RUNTIME.is_production
 # One HTML entry point plus at most 50 supporting files. Django enforces this while parsing the
 # multipart request, before the package validator independently counts and stages every part.
 DATA_UPLOAD_MAX_NUMBER_FILES = 51
@@ -81,6 +96,7 @@ CSRF_COOKIE_PATH = "/"
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = _SECURE_PORTAL_COOKIES
 CSRF_TRUSTED_ORIGINS = [RUNTIME.portal_origin.value]
+SECURE_REFERRER_POLICY = PORTAL_REFERRER_POLICY
 SESSION_COOKIE_AGE = 8 * 60 * 60
 SESSION_COOKIE_NAME = f"{_PORTAL_COOKIE_PREFIX}agora_session"
 SESSION_COOKIE_DOMAIN = None

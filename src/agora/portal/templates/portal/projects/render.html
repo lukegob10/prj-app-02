@@ -39,7 +39,7 @@
                 <li><span>{{ artifact.logical_name }}</span><span>{{ artifact.kind|upper }} · {{ artifact.byte_size|filesizeformat }}</span></li>
               {% endfor %}
             </ul>
-            <p class="portal-help-text">Anyone authorized to view this revision can retrieve every CSV listed here.</p>
+            <p class="portal-help-text">Anyone authorized to view this revision can retrieve every supporting file listed here.</p>
             <div class="portal-render-details__actions">
               <a class="portal-button portal-button--secondary" href="{{ project_url }}">{% if request.user.id == project.owner_id %}Open project details{% else %}View project information{% endif %}</a>
             </div>

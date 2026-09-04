@@ -40,4 +40,12 @@ def private_artifact_root_check(app_configs: Any, **kwargs: Any) -> list[Error]:
                 id="agora.E001",
             )
         ]
+    source_root = getattr(settings, "BASE_DIR", None)
+    if source_root and _overlaps(artifact_root, Path(source_root).resolve(strict=False)):
+        return [
+            Error(
+                "AGORA_ARTIFACT_ROOT must not overlap the application source root.",
+                id="agora.E002",
+            )
+        ]
     return []

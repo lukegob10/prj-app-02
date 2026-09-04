@@ -731,6 +731,7 @@ a:hover {
 
 .portal-page-header h1 {
   max-width: 17ch;
+  overflow-wrap: anywhere;
   font-size: clamp(2.6rem, 7vw, 5.25rem);
   line-height: 0.98;
 }
@@ -741,6 +742,7 @@ a:hover {
   color: var(--portal-color-text-muted);
   font-size: clamp(1.05rem, 2vw, 1.25rem);
   line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 
 .portal-page-header__actions {
@@ -1309,6 +1311,7 @@ a:hover {
 
 .portal-table__primary-link {
   display: inline-block;
+  overflow-wrap: anywhere;
   color: var(--portal-color-text);
   font-weight: 750;
 }

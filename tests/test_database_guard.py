@@ -14,7 +14,10 @@ from django.test import SimpleTestCase, TransactionTestCase
 from tests import conftest as test_conftest
 from tests.database_guard import (
     DATABASE_SELECTION_ATTRIBUTE,
+    TEST_DATABASE_PROFILE_ENV,
     TEST_DATABASE_RESET_ALLOWED_ENV,
+    database_profile_matches_acknowledgement,
+    database_reset_is_explicitly_allowed,
     database_tests_selected,
     item_requests_database,
     parse_test_database_reset_allowed,
@@ -103,23 +106,33 @@ def test_database_selection_detects_transaction_test_case() -> None:
 
 
 @pytest.mark.parametrize(
-    ("environment", "acknowledgement"),
+    ("environment", "acknowledgement", "profile", "selected_profile"),
     [
-        ("development", "true"),
-        ("test", None),
-        ("test", "false"),
+        ("development", "true", "AGORA_TEST", "AGORA_TEST"),
+        ("test", None, "AGORA_TEST", "AGORA_TEST"),
+        ("test", "false", "AGORA_TEST", "AGORA_TEST"),
+        ("test", "true", None, "AGORA_TEST"),
+        ("test", "true", "OTHER_TEST", "AGORA_TEST"),
+        ("test", "true", "PROD", "PROD"),
     ],
 )
-def test_collection_rejects_database_tests_without_both_safety_conditions(
+def test_collection_rejects_database_tests_without_every_safety_condition(
     monkeypatch: pytest.MonkeyPatch,
     environment: str,
     acknowledgement: str | None,
+    profile: str | None,
+    selected_profile: str,
 ) -> None:
     monkeypatch.setenv("AGORA_ENVIRONMENT", environment)
+    monkeypatch.setenv("ENV", selected_profile)
     if acknowledgement is None:
         monkeypatch.delenv(TEST_DATABASE_RESET_ALLOWED_ENV, raising=False)
     else:
         monkeypatch.setenv(TEST_DATABASE_RESET_ALLOWED_ENV, acknowledgement)
+    if profile is None:
+        monkeypatch.delenv(TEST_DATABASE_PROFILE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(TEST_DATABASE_PROFILE_ENV, profile)
     config = cast(pytest.Config, SimpleNamespace())
 
     with pytest.raises(pytest.UsageError, match="AGORA_ENVIRONMENT=test"):
@@ -128,12 +141,39 @@ def test_collection_rejects_database_tests_without_both_safety_conditions(
     assert getattr(config, DATABASE_SELECTION_ATTRIBUTE) is True
 
 
+def test_database_profile_acknowledgement_is_exact_and_rejects_live_aliases() -> None:
+    safe = {
+        "AGORA_ENVIRONMENT": "test",
+        TEST_DATABASE_RESET_ALLOWED_ENV: "true",
+        TEST_DATABASE_PROFILE_ENV: "AGORA_TEST",
+        "ENV": "agora_test",
+    }
+
+    assert database_reset_is_explicitly_allowed(safe) is True
+    assert database_profile_matches_acknowledgement("agora_test", safe) is True
+    assert database_profile_matches_acknowledgement("OTHER_TEST", safe) is False
+    assert database_profile_matches_acknowledgement(None, safe) is False
+
+    for live_profile in ("LIVE", "PRD", "PROD", "PRODUCTION"):
+        live = {**safe, "ENV": live_profile, TEST_DATABASE_PROFILE_ENV: live_profile}
+        assert database_reset_is_explicitly_allowed(live) is False
+        assert database_profile_matches_acknowledgement(live_profile, live) is False
+
+
 def test_acknowledged_database_fixture_sets_up_and_flushes_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AGORA_ENVIRONMENT", "test")
+    monkeypatch.setenv("ENV", "AGORA_TEST")
     monkeypatch.setenv(TEST_DATABASE_RESET_ALLOWED_ENV, "true")
+    monkeypatch.setenv(TEST_DATABASE_PROFILE_ENV, "AGORA_TEST")
     monkeypatch.setattr(settings, "AGORA_ENVIRONMENT", "test", raising=False)
+    database_options = cast(dict[str, object], settings.DATABASES["default"]["OPTIONS"])
+    monkeypatch.setitem(
+        database_options,
+        "environment",
+        "AGORA_TEST",
+    )
     events: list[str] = []
     database_blocker = Mock()
 

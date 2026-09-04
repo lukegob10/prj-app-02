@@ -7,6 +7,9 @@ from urllib.parse import SplitResult, urlsplit
 from django.http import HttpResponse
 
 CONTENT_IFRAME_SANDBOX = "allow-scripts"
+# Native form POSTs get Origin: null under no-referrer, breaking Django's CSRF checks.
+# Preserve same-origin provenance without disclosing portal URLs to other origins.
+PORTAL_REFERRER_POLICY = "same-origin"
 _NO_REFERRER = "no-referrer"
 _PERMISSIONS_POLICY = (
     "accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()"
@@ -65,6 +68,7 @@ def portal_response_headers(
     """Return headers that protect the trusted portal and its frame boundary."""
     return {
         **_restrictive_headers(cache_control="no-store"),
+        "Referrer-Policy": PORTAL_REFERRER_POLICY,
         "Content-Security-Policy": portal_content_security_policy(
             content_origin,
             allow_scripts=allow_scripts,

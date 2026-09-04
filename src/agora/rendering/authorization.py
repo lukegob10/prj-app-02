@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -43,7 +43,7 @@ class RenderAuthorizationUnavailable(RuntimeError):
 class RenderCredential:
     """The one-time-visible bearer value returned only to the trusted portal shell."""
 
-    token: str
+    token: str = field(repr=False)
     audience: str
     expires_at: datetime
 

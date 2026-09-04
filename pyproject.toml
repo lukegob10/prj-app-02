@@ -7,14 +7,19 @@ name = "agora"
 version = "0.1.0"
 description = "Secure internal publishing for versioned HTML dashboard packages"
 readme = "README.md"
-requires-python = ">=3.14,<3.15"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "Django>=5.2.17,<5.3",
     "oracledb>=4.0,<5.0",
     "python-dotenv>=1.2.3,<2",
+    "servestatic==4.3.1",
+    "uvicorn>=0.52.4,<0.53",
 ]
 
 [dependency-groups]
+build = [
+    "hatchling==1.27.0",
+]
 dev = [
     "django-stubs[compatible-mypy]>=6.1,<6.2",
     "pytest>=9.1.1,<10",
@@ -37,9 +42,12 @@ include = [
     "/pyproject.toml",
 ]
 
+[tool.uv]
+required-version = ">=0.12.6,<0.13"
+
 [tool.ruff]
 required-version = ">=0.16.4,<0.17"
-target-version = "py314"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
@@ -50,7 +58,7 @@ select = ["B", "DJ", "E", "F", "I", "RUF", "UP"]
 "src/agora/**/migrations/*.py" = ["RUF012"]
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 plugins = ["mypy_django_plugin.main"]
 strict = true
 warn_unreachable = true

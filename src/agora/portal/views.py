@@ -15,6 +15,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_http_methods, require_POST
 
 from agora.core.access import (
@@ -38,7 +39,13 @@ from agora.core.authentication import (
     record_logout,
     reset_user_password,
 )
-from agora.core.enhancements import EnhancementAccessDenied, request_dashboard_access
+from agora.core.enhancements import (
+    EnhancementAccessDenied,
+    EnhancementValidationError,
+    publish_dashboard_revision,
+    request_dashboard_access,
+    unpublish_dashboard,
+)
 from agora.core.models import Dashboard, DashboardFavorite, Revision, User
 from agora.core.pagination import (
     CursorColumn,
@@ -88,8 +95,10 @@ from .forms import (
     ProjectForm,
     ProjectRenameForm,
     ProvisionUserForm,
+    PublishRevisionForm,
     ResetPasswordForm,
     RevisionUploadForm,
+    UnpublishDashboardForm,
     UserSearchForm,
 )
 from .security import administrator_required, safe_next_url
@@ -253,7 +262,7 @@ def project_list(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET", "POST"])
 def project_create(request: HttpRequest) -> HttpResponse:
     """Create one private owner project from safe metadata fields only."""
-    form = ProjectForm(request.POST or None)
+    form = ProjectForm(request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
         try:
             project = create_project(
@@ -514,11 +523,90 @@ def project_preview(
 
 @login_required
 @require_http_methods(["GET", "POST"])
+def project_publish(
+    request: HttpRequest,
+    project_id: UUID,
+    revision_id: UUID,
+) -> HttpResponse:
+    """Confirm and publish one exact complete revision through the owner boundary."""
+    user = cast(User, request.user)
+    project = manageable_project(project_id, user.id)
+    if project is None or project.state not in {
+        Dashboard.State.DRAFT,
+        Dashboard.State.PUBLISHED,
+        Dashboard.State.UNPUBLISHED,
+    }:
+        return render(request, "portal/not_found.html", status=404)
+    revision = (
+        project_revisions(project.id, user.id).filter(id=revision_id, artifacts_locked=True).first()
+    )
+    if revision is None:
+        return render(request, "portal/not_found.html", status=404)
+
+    form = PublishRevisionForm(request.POST if request.method == "POST" else None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            published = publish_dashboard_revision(
+                dashboard_id=project.id,
+                actor_id=user.id,
+                revision_id=revision.id,
+                publication_note=cast(str, form.cleaned_data["publication_note"]),
+            )
+        except EnhancementAccessDenied:
+            return render(request, "portal/not_found.html", status=404)
+        except EnhancementValidationError as error:
+            form.add_error(None, str(error))
+        else:
+            messages.success(
+                request,
+                f"Revision {revision.number} published as version {published.publication_version}.",
+            )
+            return redirect("project-detail", project_id=project.id)
+
+    return render(
+        request,
+        "portal/projects/publish.html",
+        {"form": form, "project": project, "revision": revision},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def project_unpublish(request: HttpRequest, project_id: UUID) -> HttpResponse:
+    """Confirm and withdraw the currently pinned publication as its owner."""
+    user = cast(User, request.user)
+    project = manageable_project(project_id, user.id)
+    if (
+        project is None
+        or project.state != Dashboard.State.PUBLISHED
+        or project.published_revision is None
+    ):
+        return render(request, "portal/not_found.html", status=404)
+
+    form = UnpublishDashboardForm(request.POST if request.method == "POST" else None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            unpublish_dashboard(dashboard_id=project.id, actor_id=user.id)
+        except EnhancementAccessDenied:
+            return render(request, "portal/not_found.html", status=404)
+        messages.success(request, "The dashboard publication was withdrawn.")
+        return redirect("project-detail", project_id=project.id)
+
+    return render(
+        request,
+        "portal/projects/unpublish.html",
+        {"form": form, "project": project, "revision": project.published_revision},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
 def project_view(request: HttpRequest, project_id: UUID) -> HttpResponse:
     """Resolve an authorized stable URL or offer the same generic request treatment."""
     user = cast(User, request.user)
     if request.method == "POST":
         request_form = DashboardAccessRequestForm(request.POST)
+        request_submitted = False
         if request_form.is_valid():
             try:
                 request_dashboard_access(
@@ -529,14 +617,20 @@ def project_view(request: HttpRequest, project_id: UUID) -> HttpResponse:
             except EnhancementAccessDenied:
                 # Invalid, hidden, ineligible, and already-authorized identifiers deliberately
                 # receive the same acknowledgement as an eligible request.
-                pass
+                request_submitted = True
+            except EnhancementValidationError as error:
+                request_form.add_error("message", str(error))
+            else:
+                request_submitted = True
         return render(
             request,
             "portal/projects/request_access.html",
             {
-                "request_form": DashboardAccessRequestForm(),
+                "request_form": (
+                    DashboardAccessRequestForm() if request_submitted else request_form
+                ),
                 "request_url": request.path,
-                "request_submitted": True,
+                "request_submitted": request_submitted,
             },
         )
 
@@ -631,7 +725,10 @@ def project_upload(request: HttpRequest, project_id: UUID) -> HttpResponse:
     if project is None:
         return render(request, "portal/not_found.html", status=404)
 
-    form = RevisionUploadForm(request.POST or None, request.FILES or None)
+    form = RevisionUploadForm(
+        request.POST if request.method == "POST" else None,
+        request.FILES if request.method == "POST" else None,
+    )
     if request.method == "POST" and form.is_valid():
         storage = FilesystemArtifactStorage(Path(settings.AGORA_ARTIFACT_ROOT))
         try:
@@ -651,7 +748,7 @@ def project_upload(request: HttpRequest, project_id: UUID) -> HttpResponse:
                 project.id,
             )
             form.add_error(None, _upload_error_message(error))
-        except ArtifactStorageError, RevisionCreationError:
+        except (ArtifactStorageError, RevisionCreationError):
             form.add_error(
                 None,
                 "The upload could not be stored safely. No revision was created; try again.",
@@ -734,6 +831,7 @@ def _grant_rejection_message(error: GrantViewerRejected) -> str:
     )
 
 
+@sensitive_post_parameters("password")
 @require_http_methods(["GET", "POST"])
 def login_view(request: HttpRequest) -> HttpResponse:
     """Authenticate only the canonical SOEID supplied by the portal form."""
@@ -746,7 +844,10 @@ def login_view(request: HttpRequest) -> HttpResponse:
     if current_user is not None and current_user.is_authenticated:
         return redirect(next_url)
 
-    form = LoginForm(request.POST or None, initial={REDIRECT_FIELD_NAME: next_url})
+    form = LoginForm(
+        request.POST if request.method == "POST" else None,
+        initial={REDIRECT_FIELD_NAME: next_url},
+    )
     if request.method == "POST":
         if form.is_valid():
             user = authenticate_login(
@@ -782,7 +883,10 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     """Flush the portal session only through a CSRF-protected POST."""
     user = getattr(request, "user", None)
     if isinstance(user, User):
-        record_logout(user)
+        try:
+            record_logout(user)
+        except Exception:
+            logger.exception("Logout audit failed; the portal session was still invalidated.")
     logout(request)
     return redirect(settings.LOGOUT_REDIRECT_URL)
 
@@ -835,11 +939,12 @@ def user_list(request: HttpRequest) -> HttpResponse:
     )
 
 
+@sensitive_post_parameters("password", "password_confirmation")
 @administrator_required
 @require_http_methods(["GET", "POST"])
 def user_create(request: HttpRequest) -> HttpResponse:
     """Provision one account through an explicit administrator-only form."""
-    form = ProvisionUserForm(request.POST or None)
+    form = ProvisionUserForm(request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
         try:
             provision_user(
@@ -872,7 +977,7 @@ def user_disable(request: HttpRequest, user_id: UUID) -> HttpResponse:
         User.objects.only("id", "soeid", "is_active", "is_administrator"), id=user_id
     )
     was_active = target.is_active
-    form = ConfirmActionForm(request.POST or None)
+    form = ConfirmActionForm(request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
         try:
             disable_user(
@@ -914,12 +1019,13 @@ def user_enable(request: HttpRequest, user_id: UUID) -> HttpResponse:
     return redirect("admin-user-list")
 
 
+@sensitive_post_parameters("password", "password_confirmation")
 @administrator_required
 @require_http_methods(["GET", "POST"])
 def user_reset_password(request: HttpRequest, user_id: UUID) -> HttpResponse:
     """Replace a password without ever rendering the submitted value."""
     target = get_object_or_404(User.objects.only("id", "soeid", "is_active"), id=user_id)
-    form = ResetPasswordForm(request.POST or None)
+    form = ResetPasswordForm(request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
         try:
             reset = reset_user_password(

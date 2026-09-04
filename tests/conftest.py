@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from typing import cast
 
 import pytest
 
 from tests.database_guard import (
     DATABASE_SELECTION_ATTRIBUTE,
     database_acknowledgement_error,
+    database_profile_matches_acknowledgement,
     database_reset_is_explicitly_allowed,
     database_tests_selected,
 )
@@ -40,6 +42,11 @@ def _prepare_shared_test_database(request: pytest.FixtureRequest) -> Iterator[No
         raise pytest.UsageError(
             "Database-backed tests require AGORA_ENVIRONMENT=test after Django setup."
         )
+    database_config = settings.DATABASES.get("default", {})
+    database_options = cast(dict[str, object], database_config.get("OPTIONS", {}))
+    configured_profile = database_options.get("environment")
+    if not database_profile_matches_acknowledgement(configured_profile, os.environ):
+        raise pytest.UsageError(database_acknowledgement_error())
 
     from django.core.management import call_command
 

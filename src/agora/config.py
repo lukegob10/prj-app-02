@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Literal, cast
 from urllib.parse import SplitResult, urlsplit
@@ -63,6 +64,7 @@ class RuntimeConfig:
     content_origin: Origin
     database: DatabaseConfig
     artifact_root: Path
+    forwarded_allow_ips: tuple[str, ...]
 
     @property
     def is_production(self) -> bool:
@@ -97,6 +99,11 @@ class RuntimeConfig:
 
         database = _parse_database(environ, errors)
         artifact_root = _parse_absolute_path(environ, "AGORA_ARTIFACT_ROOT", errors)
+        forwarded_allow_ips = _parse_forwarded_allow_ips(
+            environ,
+            errors,
+            required=environment == "production",
+        )
 
         if errors:
             detail = "\n".join(f"- {error}" for error in errors)
@@ -113,6 +120,7 @@ class RuntimeConfig:
             content_origin=content_origin,
             database=database,
             artifact_root=artifact_root,
+            forwarded_allow_ips=forwarded_allow_ips,
         )
 
 
@@ -234,7 +242,24 @@ def _parse_origin(environ: Mapping[str, str], name: str, errors: list[str]) -> O
         errors.append(f"{name} must contain only scheme, hostname, and optional port")
         return None
 
-    normalized = f"{parts.scheme}://{parts.hostname.lower()}"
+    hostname = parts.hostname.lower()
+    try:
+        address = ip_address(hostname)
+    except ValueError:
+        address = None
+    if "*" in hostname or hostname.startswith(".") or (address and address.is_unspecified):
+        errors.append(
+            f"{name} must use an exact browser-reachable hostname, "
+            "not a wildcard or bind-all address"
+        )
+        return None
+
+    default_port = 80 if parts.scheme == "http" else 443
+    if port == default_port:
+        errors.append(f"{name} must omit the default port for its scheme")
+        return None
+
+    normalized = f"{parts.scheme}://{hostname}"
     if port is not None:
         normalized = f"{normalized}:{port}"
     if value.lower() != normalized:
@@ -244,7 +269,7 @@ def _parse_origin(environ: Mapping[str, str], name: str, errors: list[str]) -> O
     return Origin(
         value=normalized,
         scheme=parts.scheme,
-        hostname=parts.hostname.lower(),
+        hostname=hostname,
         port=port,
     )
 
@@ -258,6 +283,43 @@ def _parse_database(environ: Mapping[str, str], errors: list[str]) -> DatabaseCo
         return None
     _required(environ, f"TA_{value}_PASSWORD", errors, reject_placeholder=True)
     return DatabaseConfig(environment=value)
+
+
+def _parse_forwarded_allow_ips(
+    environ: Mapping[str, str],
+    errors: list[str],
+    *,
+    required: bool,
+) -> tuple[str, ...]:
+    value = environ.get("FORWARDED_ALLOW_IPS", "").strip()
+    if not value:
+        if required:
+            errors.append("FORWARDED_ALLOW_IPS is required in production")
+        return ("127.0.0.1",)
+
+    trusted_peers: list[str] = []
+    for candidate in value.split(","):
+        peer = candidate.strip()
+        if not peer:
+            errors.append("FORWARDED_ALLOW_IPS must not contain empty entries")
+            continue
+        if peer == "*":
+            errors.append("FORWARDED_ALLOW_IPS must not trust every peer")
+            continue
+        try:
+            parsed = ip_network(peer, strict=True) if "/" in peer else ip_address(peer)
+        except ValueError:
+            errors.append("FORWARDED_ALLOW_IPS entries must be canonical IP addresses or CIDRs")
+            continue
+        if hasattr(parsed, "prefixlen") and parsed.prefixlen == 0:
+            errors.append("FORWARDED_ALLOW_IPS must not contain a universal network")
+            continue
+        normalized = str(parsed)
+        if peer != normalized:
+            errors.append("FORWARDED_ALLOW_IPS entries must use canonical notation")
+            continue
+        trusted_peers.append(normalized)
+    return tuple(trusted_peers)
 
 
 def _parse_absolute_path(environ: Mapping[str, str], name: str, errors: list[str]) -> Path | None:

@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pull-request:
+    name: Untrusted pull-request checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.6"
+          enable-cache: true
+
+      - name: Install Python 3.14
+        run: uv python install "3.14"
+
+      - name: Run secretless repository checks
+        shell: bash
+        run: |
+          uv lock --check
+          uvx --from ruff==0.16.4 ruff format --check .
+          uvx --from ruff==0.16.4 ruff check .
+          uv run --no-project --python 3.14 python -m compileall -q src tests
+
+  quality:
+    name: Quality / Python ${{ matrix.python-version }}
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    env:
+      AGORA_ENVIRONMENT: development
+      AGORA_DEBUG: "true"
+      AGORA_PORTAL_SECRET_KEY: portal-ci-only-000000000000000000000000000000000000000000000000
+      AGORA_CONTENT_SECRET_KEY: content-ci-only-00000000000000000000000000000000000000000000000
+      AGORA_PORTAL_ORIGIN: http://localhost:8000
+      AGORA_CONTENT_ORIGIN: http://127.0.0.1:8001
+      AGORA_ARTIFACT_ROOT: /tmp/agora-artifacts
+      FORWARDED_ALLOW_IPS: 127.0.0.1
+      ENV: CI
+      TA_CI_PASSWORD: ci-not-a-real-password
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.6"
+          enable-cache: true
+
+      - name: Install Python ${{ matrix.python-version }}
+        run: uv python install "${{ matrix.python-version }}"
+
+      - name: Fetch the approved managed dependency
+        shell: bash
+        env:
+          TREASURY_ANALYTICS_WHEEL_URL: ${{ secrets.TREASURY_ANALYTICS_WHEEL_URL }}
+          TREASURY_ANALYTICS_WHEEL_SHA256: ${{ secrets.TREASURY_ANALYTICS_WHEEL_SHA256 }}
+        run: |
+          if [[ -z "$TREASURY_ANALYTICS_WHEEL_URL" || -z "$TREASURY_ANALYTICS_WHEEL_SHA256" ]]; then
+            echo "::error::Configure TREASURY_ANALYTICS_WHEEL_URL and TREASURY_ANALYTICS_WHEEL_SHA256 repository secrets."
+            exit 1
+          fi
+          wheel_dir="$RUNNER_TEMP/treasury-analytics"
+          wheel="$wheel_dir/treasury_analytics-0.1.1-py3-none-any.whl"
+          mkdir -p "$wheel_dir"
+          curl --fail --silent --show-error --location \
+            "$TREASURY_ANALYTICS_WHEEL_URL" --output "$wheel"
+          printf '%s  %s\n' "$TREASURY_ANALYTICS_WHEEL_SHA256" "$wheel" \
+            | sha256sum --check --status
+
+      - name: Install locked dependencies
+        shell: bash
+        run: |
+          uv sync --locked --all-groups --python "${{ matrix.python-version }}"
+          uv pip install --python .venv --no-deps \
+            "$RUNNER_TEMP/treasury-analytics/treasury_analytics-0.1.1-py3-none-any.whl"
+          uv pip check --python .venv
+
+      - name: Check Python ${{ matrix.python-version }} behavior
+        shell: bash
+        run: |
+          uv run --no-sync python -m compileall -q src tests
+          uv run --no-sync python manage.py check
+          uv run --no-sync python -m django check --settings=agora.settings.content
+          uv run --no-sync python manage.py makemigrations --check --dry-run
+          uv run --no-sync pytest -m "not django_db and not browser" --no-cov
+
+      - name: Install Chromium
+        if: matrix.python-version == '3.14'
+        run: uv run --no-sync playwright install --with-deps chromium
+
+      - name: Run browser security checks
+        if: matrix.python-version == '3.14'
+        run: uv run --no-sync pytest tests/browser --browser chromium --no-cov
+
+      - name: Run repository gates
+        if: matrix.python-version == '3.14'
+        shell: bash
+        run: |
+          uv lock --check
+          uv run --no-sync ruff format --check .
+          uv run --no-sync ruff check .
+          uv run --no-sync mypy src tests
+          uv build --no-build-isolation
+
+      - name: Validate Compose
+        if: matrix.python-version == '3.14'
+        shell: bash
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+
+      - name: Build the runtime image
+        if: matrix.python-version == '3.14'
+        shell: bash
+        env:
+          TREASURY_ANALYTICS_WHEEL_SHA256: ${{ secrets.TREASURY_ANALYTICS_WHEEL_SHA256 }}
+        run: |
+          docker buildx build \
+            --build-context treasury_analytics="$RUNNER_TEMP/treasury-analytics" \
+            --build-arg "TREASURY_ANALYTICS_WHEEL_SHA256=$TREASURY_ANALYTICS_WHEEL_SHA256" \
+            --tag agora:ci \
+            --load \
+            .

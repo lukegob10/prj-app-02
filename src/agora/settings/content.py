@@ -8,7 +8,6 @@ from agora.settings.base import *
 SECRET_KEY = load_service_secret(os.environ, "content")
 ALLOWED_HOSTS = [RUNTIME.content_origin.hostname]
 ROOT_URLCONF = "agora.urls.content"
-WSGI_APPLICATION = "agora.content_wsgi.application"
 ASGI_APPLICATION = "agora.content_asgi.application"
 
 INSTALLED_APPS = ["agora.core.apps.CoreConfig"]
@@ -22,6 +21,28 @@ MIDDLEWARE = [
     "agora.middleware.ContentSecurityHeadersMiddleware",
 ]
 TEMPLATES: list[dict[str, object]] = []
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {
+        "redact_content_request_target": {
+            "()": "agora.log_redaction.ContentRequestTargetFilter",
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "filters": ["redact_content_request_target"],
+        }
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        }
+    },
+}
 
 # These Django warnings describe protections that would violate the content composition:
 # CSRF middleware is unnecessary for a GET/HEAD-only service, and X-Frame-Options would block

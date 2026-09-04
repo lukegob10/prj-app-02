@@ -1,0 +1,37 @@
+{% extends "portal/base.html" %}
+
+{% block title %}Publish revision {{ revision.number }} | {{ project.name }} | Agora{% endblock %}
+{% block body_class %} portal-page--workspace{% endblock %}
+
+{% block content %}
+  {% include "portal/components/page-header.html" with eyebrow="Publication" title="Publish dashboard revision" intro="Confirm the exact immutable revision that viewers will receive." %}
+
+  <section class="portal-section portal-section--compact" aria-labelledby="publish-revision-heading">
+    <div class="portal-card portal-form-stack">
+      <div>
+        <p class="portal-card__eyebrow">Release confirmation</p>
+        <h2 id="publish-revision-heading">Publish revision {{ revision.number }}?</h2>
+      </div>
+      <p>This pins revision {{ revision.number }} as the viewer release for <strong>{{ project.name }}</strong>. Publishing another retained revision later creates a new publication version.</p>
+      <form class="portal-form-stack" method="post" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="portal-form-field__error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="portal-form-field">
+          <label class="portal-form-field__label" for="{{ form.publication_note.id_for_label }}">{{ form.publication_note.label }}</label>
+          <p class="portal-form-field__help" id="publication-note-help">Optional, up to 240 characters. Viewers may use this note to understand the release.</p>
+          {{ form.publication_note }}
+          {% if form.publication_note.errors %}<div class="portal-form-field__error" id="publication-note-error" role="alert">{{ form.publication_note.errors }}</div>{% endif %}
+        </div>
+        <div class="portal-check-field">
+          {{ form.confirm }}
+          <label class="portal-form-field__label" for="{{ form.confirm.id_for_label }}">{{ form.confirm.label }}</label>
+        </div>
+        {% if form.confirm.errors %}<div class="portal-form-field__error" id="publish-confirm-error" role="alert">{{ form.confirm.errors }}</div>{% endif %}
+        <div class="portal-action-group">
+          <a class="portal-button portal-button--quiet" href="{% url 'project-detail' project.id %}">Cancel</a>
+          <button class="portal-button portal-button--primary" type="submit">Publish revision {{ revision.number }}</button>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

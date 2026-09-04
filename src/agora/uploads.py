@@ -922,7 +922,7 @@ def _validate_csv(file: BinaryIO, index: int, limits: UploadLimits) -> None:
         finally:
             try:
                 text_stream.detach()
-            except ValueError, AttributeError:
+            except (ValueError, AttributeError):
                 pass
         if not saw_value:
             _raise_issue(UploadIssueCode.EMPTY_FILE, index)

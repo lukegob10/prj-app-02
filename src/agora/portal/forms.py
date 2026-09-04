@@ -6,6 +6,7 @@ from typing import Any
 
 from django import forms
 
+from agora.core.enhancements import MAX_PUBLICATION_NOTE_LENGTH
 from agora.core.names import InvalidSoeid, canonicalize_soeid
 
 _PASSWORD_MAX_LENGTH = 256
@@ -278,5 +279,37 @@ class ConfirmActionForm(forms.Form):
 
     confirm = forms.BooleanField(
         label="I understand this will end the user's active sessions.",
+        required=True,
+    )
+
+
+class PublishRevisionForm(forms.Form):
+    """Bind an explicit release acknowledgement to one server-selected revision."""
+
+    publication_note = forms.CharField(
+        label="Release note (optional)",
+        max_length=MAX_PUBLICATION_NOTE_LENGTH,
+        required=False,
+        strip=True,
+        help_text="Briefly describe what changed for viewers.",
+        widget=forms.Textarea(
+            attrs={
+                "class": "portal-textarea",
+                "rows": 3,
+                "aria-describedby": "publication-note-help",
+            }
+        ),
+    )
+    confirm = forms.BooleanField(
+        label="I confirm that this exact revision is ready for viewers.",
+        required=True,
+    )
+
+
+class UnpublishDashboardForm(forms.Form):
+    """Require an explicit acknowledgement before withdrawing a publication."""
+
+    confirm = forms.BooleanField(
+        label="I understand that viewers will immediately lose dashboard access.",
         required=True,
     )

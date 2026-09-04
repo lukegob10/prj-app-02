@@ -273,6 +273,98 @@ def test_owner_upload_creates_an_immutable_revision_and_updates_detail(
     assert b"data.csv" in detail.content
 
 
+def test_owner_can_publish_an_exact_revision_and_withdraw_it(
+    owner: User,
+    viewer: User,
+    tmp_path: Path,
+) -> None:
+    project = Dashboard.objects.create(owner=owner, name="Publication workflow")
+    revision = create_upload_revision(
+        dashboard_id=project.id,
+        created_by_id=owner.id,
+        parts=[UploadPart("dashboard.html", [b"<html><body>Release</body></html>"], "text/html")],
+        storage=FilesystemArtifactStorage(tmp_path / "publication"),
+    )
+    ViewerGrant.objects.create(dashboard=project, viewer=viewer, created_by=owner)
+    owner_client = authenticated_client(owner)
+    publish_url = reverse("project-publish", args=[project.id, revision.id])
+
+    confirmation = owner_client.get(publish_url)
+    assert confirmation.status_code == 200
+    assert b"Publish revision 1?" in confirmation.content
+    invalid = owner_client.post(publish_url, {"publication_note": "Release one"})
+    assert invalid.status_code == 200
+    project.refresh_from_db()
+    assert project.state == Dashboard.State.DRAFT
+
+    published = owner_client.post(
+        publish_url,
+        {"publication_note": "  Release one  ", "confirm": "on"},
+    )
+    assert published.status_code == 302
+    project.refresh_from_db()
+    assert project.state == Dashboard.State.PUBLISHED
+    assert project.published_revision_id == revision.id
+    assert project.publication_version == 1
+    assert project.publication_note == "Release one"
+    assert AuditEvent.objects.filter(
+        event_type="dashboard.published",
+        actor=owner,
+        dashboard=project,
+        revision=revision,
+    ).exists()
+    assert (
+        authenticated_client(viewer).get(reverse("project-view", args=[project.id])).status_code
+        == 200
+    )
+
+    unpublish_url = reverse("project-unpublish", args=[project.id])
+    withdrawal = owner_client.get(unpublish_url)
+    assert withdrawal.status_code == 200
+    assert b"Withdraw revision 1?" in withdrawal.content
+    withdrawn = owner_client.post(unpublish_url, {"confirm": "on"})
+    assert withdrawn.status_code == 302
+    withdrawn_project = Dashboard.objects.get(id=project.id)
+    assert withdrawn_project.state == Dashboard.State.UNPUBLISHED
+    assert withdrawn_project.published_revision_id is None
+    assert withdrawn_project.publication_version == 1
+    assert AuditEvent.objects.filter(
+        event_type="dashboard.unpublished",
+        actor=owner,
+        dashboard=project,
+        revision=revision,
+        metadata={"publication_version": 1},
+    ).exists()
+    assert (
+        authenticated_client(viewer).get(reverse("project-view", args=[project.id])).status_code
+        == 404
+    )
+
+
+def test_publication_routes_are_owner_scoped_post_confirmed_and_csrf_protected(
+    owner: User,
+    viewer: User,
+    tmp_path: Path,
+) -> None:
+    project = Dashboard.objects.create(owner=owner, name="Protected publication")
+    revision = create_upload_revision(
+        dashboard_id=project.id,
+        created_by_id=owner.id,
+        parts=[UploadPart("dashboard.html", [b"<html>Protected</html>"], "text/html")],
+        storage=FilesystemArtifactStorage(tmp_path / "protected-publication"),
+    )
+    publish_url = reverse("project-publish", args=[project.id, revision.id])
+
+    assert authenticated_client(viewer).get(publish_url).status_code == 404
+    assert authenticated_client(owner).put(publish_url).status_code == 405
+
+    csrf_client = Client(enforce_csrf_checks=True)
+    csrf_client.force_login(owner)
+    assert csrf_client.post(publish_url, {"confirm": "on"}).status_code == 403
+    project.refresh_from_db()
+    assert project.state == Dashboard.State.DRAFT
+
+
 def test_upload_page_explains_flat_dashboard_package_contract(owner: User) -> None:
     project = Dashboard.objects.create(owner=owner, name="Upload guidance")
     response = authenticated_client(owner).get(reverse("project-upload", args=[project.id]))
@@ -329,6 +421,11 @@ def test_anonymous_project_routes_redirect_to_login(owner: User) -> None:
             "project-preview",
             args=[project.id, "00000000-0000-0000-0000-000000000000"],
         ),
+        reverse(
+            "project-publish",
+            args=[project.id, "00000000-0000-0000-0000-000000000000"],
+        ),
+        reverse("project-unpublish", args=[project.id]),
         reverse("project-view", args=[project.id]),
     ):
         response = client.get(url)

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from django import forms
 
-from agora.core.enhancements import MAX_ACCESS_REQUEST_MESSAGE_LENGTH
+from agora.core.enhancements import (
+    MAX_ACCESS_REQUEST_MESSAGE_LENGTH,
+    EnhancementValidationError,
+    normalize_access_request_message,
+)
 from agora.core.names import InvalidSoeid, canonicalize_soeid
 
 
@@ -26,6 +30,12 @@ class DashboardAccessRequestForm(forms.Form):
             }
         ),
     )
+
+    def clean_message(self) -> str:
+        try:
+            return normalize_access_request_message(self.cleaned_data["message"])
+        except EnhancementValidationError as error:
+            raise forms.ValidationError(str(error)) from error
 
 
 class TransferOwnershipForm(forms.Form):

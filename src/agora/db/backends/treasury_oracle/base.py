@@ -26,7 +26,7 @@ def treasury_dependency_path() -> Path:
     if environment_path not in package_path.parents:
         raise ImproperlyConfigured(
             "treasury-analytics must be installed in Agora's active .venv; "
-            "run `uv sync --locked --all-groups`."
+            "install the approved managed wheel after `uv sync --locked --all-groups`."
         )
     return package_path
 

@@ -15,6 +15,7 @@ from django.http import (
     StreamingHttpResponse,
 )
 from django.utils.cache import patch_vary_headers
+from django.views.decorators.debug import sensitive_variables
 
 from agora.core.models import Artifact
 from agora.core.names import InvalidLogicalName, normalize_logical_name
@@ -34,6 +35,7 @@ _SUPPORTING_KINDS = (
 _TEXT_MEDIA_TYPES = frozenset({"text/html", "text/csv", "text/css"})
 
 
+@sensitive_variables("token")
 def render_html(request: HttpRequest, audience: str, token: str) -> HttpResponseBase:
     """Deliver the exact authorized HTML artifact and nothing from portal state."""
     if request.method not in {"GET", "HEAD"}:
@@ -41,11 +43,12 @@ def render_html(request: HttpRequest, audience: str, token: str) -> HttpResponse
     try:
         target = resolve_render_authorization(token, audience=audience)
         artifact = target.revision.artifacts.get(kind=Artifact.Kind.HTML)
-    except Artifact.DoesNotExist, Artifact.MultipleObjectsReturned, RenderAuthorizationDenied:
+    except (Artifact.DoesNotExist, Artifact.MultipleObjectsReturned, RenderAuthorizationDenied):
         return _render_failure(request, HttpResponseNotFound())
     return _artifact_response(request, artifact)
 
 
+@sensitive_variables("token")
 def render_csv(
     request: HttpRequest,
     audience: str,
@@ -62,6 +65,7 @@ def render_csv(
     )
 
 
+@sensitive_variables("token")
 def render_artifact(
     request: HttpRequest,
     audience: str,
@@ -72,6 +76,7 @@ def render_artifact(
     return _render_supporting_artifact(request, audience, token, logical_name)
 
 
+@sensitive_variables("token")
 def render_supporting_artifact(
     request: HttpRequest,
     audience: str,
@@ -82,6 +87,7 @@ def render_supporting_artifact(
     return render_artifact(request, audience, token, logical_name)
 
 
+@sensitive_variables("token")
 def _render_supporting_artifact(
     request: HttpRequest,
     audience: str,
@@ -115,12 +121,12 @@ def _render_supporting_artifact(
 
 
 def _artifact_response(request: HttpRequest, artifact: Artifact) -> HttpResponseBase:
-    storage = FilesystemArtifactStorage(Path(settings.AGORA_ARTIFACT_ROOT))
     try:
+        storage = FilesystemArtifactStorage(Path(settings.AGORA_ARTIFACT_ROOT))
         key = StorageKey(artifact.storage_key)
         with storage.open(key):
             pass
-    except ArtifactStorageError, FileNotFoundError:
+    except (ArtifactStorageError, FileNotFoundError):
         return _render_failure(request, HttpResponseNotFound())
 
     content_type = artifact.media_type

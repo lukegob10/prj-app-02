@@ -11,12 +11,14 @@ The content service uses `agora.settings.content`. It has no session or authenti
 and serves only authorized, read-only dashboard-package requests. Uploaded HTML must never be
 returned by a portal route.
 
-Local development runs both services with Django's standard development server:
+Uvicorn is the only supported HTTP runtime. It loads two ASGI entry points from the same source:
 
-- portal: `http://localhost:8000`
-- content: `http://127.0.0.1:8001`
+- `agora.asgi:application` for `http://localhost:8000`
+- `agora.content_asgi:application` for `http://127.0.0.1:8001`
 
 The distinct hosts prevent portal cookies from being sent to the content service.
+The portal process also serves its collected, content-hashed static assets through ASGI-native
+ServeStatic middleware. The content process has no staticfiles application or middleware.
 
 ## Source layout
 
@@ -54,6 +56,14 @@ storage must remain outside static roots and outside the repository.
 Configuration is read from process variables and the ignored `.env` file. Required values are
 validated at startup. Portal and content secrets must differ, origins must be normalized and use
 different hostnames, production origins must use HTTPS, and the artifact root must be absolute.
+Origins describe browser-visible URLs; they are independent of Uvicorn's bind address.
+
+When an external TLS proxy is present, Uvicorn accepts forwarding data only from the peer IPs or
+CIDRs in `FORWARDED_ALLOW_IPS` and normalizes the ASGI scheme. Django does not trust raw proxy
+headers or `X-Forwarded-Host`; it validates the preserved browser-visible Host normally.
 
 The Oracle connection comes from the installed `treasury_analytics` package. Agora selects a
 profile with `ENV` and supplies only the matching `TA_<ENV>_PASSWORD` secret.
+
+See [Deployment](deployment.md) for image, proxy, migration, static, volume, and rollback
+contracts.

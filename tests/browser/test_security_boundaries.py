@@ -103,6 +103,22 @@ def test_hostile_content_is_opaque_and_common_exfiltration_channels_are_blocked(
     assert not any(cookie["name"] == "content_probe" for cookie in page.context.cookies())
 
 
+def test_inline_self_navigation_cannot_escape_the_portal_frame_policy(
+    page: Page,
+    browser_stack: BrowserFixtureStack,
+) -> None:
+    portal_url = browser_stack.portal.url("/fixture/self-navigation")
+    response = page.goto(portal_url)
+    page.wait_for_timeout(500)
+
+    assert response is not None
+    assert response.headers["content-security-policy"] == portal_content_security_policy(
+        browser_stack.content.origin
+    )
+    assert page.url == portal_url
+    assert browser_stack.attacker.requests_for("/exfil/self-navigation") == ()
+
+
 def test_two_hostile_documents_do_not_share_durable_browser_storage(
     page: Page, browser_stack: BrowserFixtureStack
 ) -> None:

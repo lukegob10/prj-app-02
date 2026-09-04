@@ -890,7 +890,7 @@ def test_freshness_derivation_cannot_be_corrupted_by_bulk_sql() -> None:
     try:
         with transaction.atomic():
             dashboard_model.objects.filter(id=dashboard.pk).update(stale_after=wrong_stale_after)
-    except IntegrityError, DatabaseError:
+    except (IntegrityError, DatabaseError):
         pass
     else:
         dashboard.refresh_from_db()

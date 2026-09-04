@@ -166,6 +166,10 @@ def cleanup_expired_reservations(
     cutoff = now or timezone.now()
     reservation_ids = list(
         StorageReservation.objects.filter(expires_at__lte=cutoff)
+        .exclude(
+            storage_state=StorageReservation.StorageState.RESERVED,
+            cleanup_required=True,
+        )
         .order_by("expires_at", "id")
         .values_list("id", flat=True)[:limit]
     )
